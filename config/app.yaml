@@ -1,0 +1,42 @@
+# Non-secret application settings shared by every component.
+# Environment variables (.env) override values here: secrets and hostnames live in .env.
+
+sim_clock:
+  day_seconds: 300            # 1 simulated day = 5 real minutes (SIM_DAY_SECONDS)
+
+patients:
+  count: 15
+  id_prefix: "P"              # P001 .. P015
+
+vitals_simulator:
+  min_interval_seconds: 2
+  max_interval_seconds: 5
+  abnormal_spike_probability: 0.03
+  random_seed: 42
+
+lab_simulator:
+  tests: [potassium, creatinine, haemoglobin, wbc, crp, lactate]
+  missing_result_probability: 0.05
+  landing_dir: /data/landing/labs
+
+kafka:
+  topics:
+    vitals: patient-vitals
+    dlq: vitals-dlq
+    alerts: patient-alerts
+
+streaming:
+  window_duration: "2 minutes"
+  slide_duration: "30 seconds"
+  watermark: "1 minute"
+  trigger_interval: "10 seconds"
+
+paths:
+  lake_vitals: /data/lake/vitals
+  checkpoints: /data/checkpoints
+  landing_labs: /data/landing/labs
+  reports: /data/reports
+
+health:
+  no_vitals_alert_seconds: 30
+  lab_file_deadline_seconds: 60   # after the sim-day boundary

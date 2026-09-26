@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Secrets / local config
+.env
+
+# Runtime data (keep folder skeleton only)
+data/**
+!data/**/
+!data/**/.gitkeep
+
+# Spark local artefacts
+spark-warehouse/
+metastore_db/
+derby.log
+checkpoint*/
+
+# Airflow local artefacts
+airflow/logs/
+airflow.db
+standalone_admin_password.txt
+
+# Editors / OS
+.idea/
+.DS_Store
+Thumbs.db
+*.log

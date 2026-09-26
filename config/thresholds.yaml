@@ -1,0 +1,19 @@
+# Project-defined monitoring rules for an academic data-engineering exercise.
+# NOT clinical guidance. Owner: Member B (shared by streaming and batch code via common/risk_rules.py).
+
+vitals:
+  spo2_min:            {below: 92,               points: 2}
+  heart_rate_avg:      {below: 50, above: 120,   points: 1}
+  temperature_max:     {above: 38.0,             points: 1}
+  systolic_bp:         {below: 90, above: 160,   points: 1}
+  trend:               {consecutive_windows: 3,  points: 1}
+
+labs:
+  out_of_range_points: 1
+  far_out_of_range_points: 2
+  far_out_of_range_factor: 1.5    # beyond 1.5x the reference range
+
+categories:                       # total score -> category
+  NORMAL:     {min: 0, max: 1}
+  WATCH:      {min: 2, max: 3}
+  CONCERNING: {min: 4}

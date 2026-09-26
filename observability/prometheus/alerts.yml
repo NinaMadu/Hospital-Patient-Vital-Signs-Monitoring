@@ -1,0 +1,13 @@
+# Prometheus alert rules. Owner: Member C.
+# Day 9 adds the pipeline rules from the plan: no vitals for 30 s, lab file late,
+# error rate, consumer lag. The rule below is a generic scrape-health check.
+groups:
+  - name: platform
+    rules:
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} target {{ $labels.instance }} is down"
