@@ -109,6 +109,20 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Writes data/landing/labs/labs_day=N.csv (+ ._SUCCESS marker) when each sim day ends.
+  # One day on demand:  docker compose run --rm lab-simulator python -m simulators.lab_batch.main --day 3
+  lab-simulator:
+    image: ward-vitals/python-app:dev
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+    command: ["python", "-m", "simulators.lab_batch.main"]
+    env_file: .env
+    volumes:
+      - ./:/opt/project:ro
+      - ./data/landing:/data/landing
+    restart: unless-stopped
+
   # ----------------------------------------------------------- processing --
   spark-master:
     <<: *spark-common
