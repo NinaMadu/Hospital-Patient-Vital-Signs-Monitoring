@@ -22,9 +22,14 @@ scrape_configs:
     static_configs:
       - targets: ["kafka-exporter:9308"]
 
-  # FastAPI serving layer (/metrics).
+  # FastAPI serving layer (/metrics): request metrics + serving-store freshness from Postgres.
   - job_name: api
     static_configs:
       - targets: ["api:8000"]
 
-  # Add the simulators / alert consumer here once they expose /metrics.
+  # Alert consumer (patient-alerts -> vital_alerts).
+  - job_name: alert-consumer
+    static_configs:
+      - targets: ["alert-consumer:8001"]
+
+  # Add the simulators here once they expose /metrics (A7, B10).

@@ -241,6 +241,32 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:           # /health answers 503 while Postgres is unreachable
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # patient-alerts -> vital_alerts, consumer group ward-alert-consumer (Member C).
+  # Metrics for Prometheus: http://localhost:8001/metrics
+  alert-consumer:
+    image: ward-vitals/python-app:dev
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+    command: ["python", "-m", "api.alert_consumer"]
+    env_file: .env
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./:/opt/project:ro
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   # -------------------------------------------- observability (profile) --

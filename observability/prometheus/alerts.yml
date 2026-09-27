@@ -1,6 +1,6 @@
 # Prometheus alert rules. Owner: Member C.
-# Day 9 adds the pipeline rules from the plan: no vitals for 30 s, lab file late,
-# error rate, consumer lag. The rule below is a generic scrape-health check.
+# See firing alerts at http://localhost:9090/alerts (monitoring profile).
+# Each rule names the failure it detects and where its metric comes from.
 groups:
   - name: platform
     rules:
@@ -11,3 +11,108 @@ groups:
           severity: warning
         annotations:
           summary: "{{ $labels.job }} target {{ $labels.instance }} is down"
+
+  # ---- ingestion: is data arriving? (kafka-exporter) ----------------------------------
+  - name: ingestion
+    rules:
+      - alert: NoVitalsReceived
+        # No new record on any patient-vitals partition in the last 30 s.
+        expr: sum(changes(kafka_topic_partition_current_offset{topic="patient-vitals"}[30s])) == 0
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "No vital readings reached Kafka for 30 s"
+          description: "The bedside simulator (vital-producer) or Kafka has stopped. Check: docker compose ps vital-producer kafka"
+
+  # ---- speed layer: is Spark keeping up? (StreamingQueryListener -> Pushgateway) --------
+  - name: speed-layer
+    rules:
+      - alert: SpeedLayerStalled
+        expr: time() - max by (query) (ward_streaming_last_progress_timestamp_seconds) > 60
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Spark query {{ $labels.query }} has made no progress for over 60 s"
+          description: "The spark-streaming driver is down or stuck. Check: docker compose logs spark-streaming"
+
+      - alert: SpeedLayerQueryStopped
+        expr: ward_streaming_query_active == 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Spark query {{ $labels.query }} terminated"
+
+      - alert: SpeedLayerFallingBehind
+        expr: ward_streaming_kafka_lag_records > 500
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Spark query {{ $labels.query }} is {{ $value }} Kafka records behind"
+
+      - alert: SpeedViewStale
+        # The newest reading in patient_current_status is old: vitals are not reaching the API.
+        expr: ward_serving_last_reading_age_seconds > 90
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Speed view is {{ $value | humanizeDuration }} old"
+
+  # ---- alerts path: Q3 -> patient-alerts -> alert consumer -> vital_alerts --------------
+  - name: patient-alerts
+    rules:
+      - alert: AlertConsumerLag
+        expr: sum(kafka_consumergroup_lag{consumergroup="ward-alert-consumer"}) > 50
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alert consumer is {{ $value }} alerts behind"
+          description: "Patient alerts are waiting in Kafka and not yet visible in the API."
+
+      - alert: AlertConsumerDatabaseErrors
+        expr: increase(ward_alert_consumer_db_errors_total[2m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alert consumer cannot write to Postgres (retrying, nothing is lost)"
+
+      - alert: PatientCriticalAlert
+        # A SUSTAINED patient alert was stored in the last 2 minutes (e.g. the P007 demo).
+        expr: sum(increase(ward_alerts_stored_total{severity="CRITICAL"}[2m])) > 0
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} critical patient alert(s) in the last 2 minutes"
+          description: "See http://localhost:8000/api/alerts?severity=CRITICAL"
+
+  # ---- batch layer and storage (API collector reading Postgres) --------------------------
+  - name: batch-and-storage
+    rules:
+      - alert: LabFileLate
+        # Yesterday's labs are not in lab_results yet (1 min grace = health.lab_file_deadline_seconds).
+        expr: ward_current_sim_day - ward_lab_latest_sim_day > 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Newest lab results are {{ $value }} sim days old (yesterday's file not loaded)"
+          description: "The lab file is missing or the daily_lab_consolidation DAG failed. Check Airflow."
+
+      - alert: PipelineFailureRecorded
+        expr: ward_pipeline_health_recent_failures > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} FAIL row(s) in pipeline_health in the last 30 minutes"
+
+      - alert: PostgresDown
+        expr: ward_postgres_up == 0
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "The API cannot reach PostgreSQL"
