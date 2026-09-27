@@ -9,6 +9,7 @@ EC8203 Applied Big Data Engineering mini-project, use case 2.
 > Risk thresholds in this project are simulated academic rules for a data-engineering exercise, **not clinical guidance**.
 
 - Team plan, work split and schedule: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)
+- Step-by-step work plan for each member: [docs/WORK_PLAN.md](docs/WORK_PLAN.md)
 - Assignment brief and implementation guide: [docs/brief/](docs/brief/)
 - Architecture decisions: [docs/decisions/](docs/decisions/)
 

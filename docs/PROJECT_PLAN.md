@@ -6,6 +6,8 @@ A 14-day plan for a three-person team building a Lambda-architecture pipeline fo
 
 > **Business question:** Which patients show concerning vital-sign trends right now, and how do yesterday's lab results change the risk picture for those patients going forward?
 
+> **Schedule update (27 Sep):** the team is on the fast-track plan in [WORK_PLAN.md](WORK_PLAN.md): build Mon 28 Sep – Fri 2 Oct, submit Mon 5 Oct. Members: A = Ninada, B = Imalsha, C = Kasun. The learning labs (§5), the 14-day schedule (§6), the replay DAG, the reconciliation job and the separate health DAG are dropped. The decisions, architecture, risk rules and marks map below still apply.
+
 | Weight | Duration | Team | Architecture | Simulated clock |
 |---|---|---|---|---|
 | 25% of module | 2 weeks | 3 (A, B, C) | Lambda | 1 sim day = 5 real minutes |
@@ -146,7 +148,7 @@ The split is by **vertical slice**, not by layer. Nobody is "the frontend person
 
 ---
 
-## 5. Learning labs (Days 1–3, everyone does all five)
+## 5. Learning labs (dropped: see WORK_PLAN.md)
 
 Each lab takes about 2 hours. The member who leads a lab tries it first, then walks the other two through it. Keep lab code in `labs/<name>/`; it is throwaway but useful for the viva.
 
@@ -160,7 +162,7 @@ Each lab takes about 2 hours. The member who leads a lab tries it first, then wa
 
 ---
 
-## 6. 14-day schedule
+## 6. 14-day schedule (superseded by WORK_PLAN.md)
 
 Build one working slice at a time. A simple pipeline that runs end to end earns more marks than a complex one that is half finished.
 

@@ -129,7 +129,9 @@ services:
       context: .
       dockerfile: docker/airflow/Dockerfile
     hostname: airflow
-    command: standalone
+    # A container restart (e.g. Docker Desktop restarting) keeps the old webserver pid file,
+    # and the webserver then refuses to start. Remove it before launching.
+    command: ["bash", "-c", "rm -f /opt/airflow/airflow-webserver*.pid && exec airflow standalone"]
     env_file: .env
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
