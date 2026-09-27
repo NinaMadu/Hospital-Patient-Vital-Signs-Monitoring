@@ -3,6 +3,7 @@
 
 sim_clock:
   day_seconds: 300            # 1 simulated day = 5 real minutes (SIM_DAY_SECONDS)
+  epoch: "2026-09-28T00:00:00+00:00"   # sim_day 0 starts here (SIM_EPOCH)
 
 patients:
   count: 15
@@ -20,10 +21,19 @@ lab_simulator:
   landing_dir: /data/landing/labs
 
 kafka:
+  bootstrap_servers: localhost:9094   # host default; containers get kafka:9092 (KAFKA_BOOTSTRAP_INTERNAL)
   topics:
     vitals: patient-vitals
     dlq: vitals-dlq
     alerts: patient-alerts
+
+# Host defaults for local runs; containers override host/port/credentials from .env.
+postgres:
+  host: localhost             # POSTGRES_HOST (postgres inside Docker)
+  port: 5432                  # POSTGRES_PORT
+  db: ward                    # POSTGRES_DB
+  user: ward                  # POSTGRES_USER
+  password: ward_dev_pw       # POSTGRES_PASSWORD (local dev only)
 
 streaming:
   window_duration: "2 minutes"
