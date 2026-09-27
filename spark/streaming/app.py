@@ -5,15 +5,14 @@ Shared by all members. Each owner adds one start() call below.
     docker compose up -d spark-streaming           # runs this file with spark-submit
     Spark UI (Structured Streaming tab): http://localhost:4040
 """
-import os
-
 from pyspark.sql import DataFrame, SparkSession
 
+from common.config import get_settings
 from spark.streaming import q1_windows, q3_alerts
 from spark.streaming.listener import MetricsListener
 
-KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_INTERNAL", "kafka:9092")
-VITALS_TOPIC = os.getenv("VITALS_TOPIC", "patient-vitals")
+KAFKA_BOOTSTRAP = get_settings().kafka.bootstrap_servers
+VITALS_TOPIC = get_settings().kafka.topics.vitals
 
 
 def read_vitals(spark: SparkSession, starting_offsets: str = "latest") -> DataFrame:

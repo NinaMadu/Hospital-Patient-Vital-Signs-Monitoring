@@ -10,23 +10,22 @@ Two streaming queries share one parsed stream:
 """
 from __future__ import annotations
 
-import os
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import timezone
 
-import yaml
 from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-# TODO(A1/B1): read these through common.config.get_settings() once B1 is merged.
-# Until then they mirror config/app.yaml (streaming, kafka, paths) and .env.
-WINDOW = "2 minutes"
-SLIDE = "30 seconds"
-WATERMARK = "1 minute"
-TRIGGER = "10 seconds"
-DLQ_TOPIC = os.getenv("DLQ_TOPIC", "vitals-dlq")
-CHECKPOINTS = "/data/checkpoints"
+from common.config import get_settings, load_thresholds
+from common.sim_clock import sim_day_column
+
+SETTINGS = get_settings()
+WINDOW = SETTINGS.streaming.window_duration
+SLIDE = SETTINGS.streaming.slide_duration
+WATERMARK = SETTINGS.streaming.watermark
+TRIGGER = SETTINGS.streaming.trigger_interval
+DLQ_TOPIC = SETTINGS.kafka.topics.dlq
+CHECKPOINTS = SETTINGS.paths.checkpoints
 
 # Physically plausible limits. A value outside them is a sensor or transmission error,
 # not a sick patient, so the event is rejected. Clinical thresholds are a separate thing
@@ -48,9 +47,7 @@ EVENT_SCHEMA = T.StructType(
     + [T.StructField("timestamp", T.StringType()), T.StructField(CORRUPT, T.StringType())]
 )
 
-THRESHOLDS = yaml.safe_load(
-    (Path(__file__).resolve().parents[2] / "config" / "thresholds.yaml").read_text()
-)["vitals"]
+THRESHOLDS = load_thresholds().vitals
 
 
 # ---------------------------------------------------------------- parsing --
@@ -139,13 +136,6 @@ def window_aggregates(events: DataFrame) -> DataFrame:
     )
 
 
-def sim_day(ts: F.Column) -> F.Column:
-    """floor((ts - SIM_EPOCH) / SIM_DAY_SECONDS). TODO(A1): move to common/sim_clock.py."""
-    epoch = datetime.fromisoformat(os.getenv("SIM_EPOCH", "2026-09-28T00:00:00+00:00")).timestamp()
-    day_seconds = int(os.getenv("SIM_DAY_SECONDS", "300"))
-    return F.floor((ts.cast("double") - F.lit(epoch)) / day_seconds).cast("int")
-
-
 def current_status(windows: DataFrame) -> DataFrame:
     """One row per patient: the window that ends with the patient's latest reading.
 
@@ -156,7 +146,7 @@ def current_status(windows: DataFrame) -> DataFrame:
         F.col("last_event_time").desc(), F.col("window_start").asc())
     return (windows.withColumn("_rank", F.row_number().over(pick))
             .filter("_rank = 1").drop("_rank")
-            .withColumn("sim_day", sim_day(F.col("last_event_time"))))
+            .withColumn("sim_day", sim_day_column(F.col("last_event_time"))))
 
 
 # ----------------------------------------------------------------- output --
@@ -179,13 +169,7 @@ WHERE patient_current_status.last_event_time <= EXCLUDED.last_event_time
 def pg_connect():
     import psycopg2
 
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "postgres"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        dbname=os.environ["POSTGRES_DB"],
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-    )
+    return psycopg2.connect(SETTINGS.postgres.dsn)
 
 
 def upsert_batch(batch_df: DataFrame, batch_id: int) -> None:
