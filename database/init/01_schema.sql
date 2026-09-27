@@ -4,16 +4,28 @@
 -- (re-apply with: docker compose down -v && docker compose up -d).
 
 -- Speed view: latest windowed state per patient (upserted by Spark Q1, Member A).
+-- One row per patient: the 2-minute sliding window that ends with the patient's latest reading.
 CREATE TABLE IF NOT EXISTS patient_current_status (
     patient_id          TEXT PRIMARY KEY,
     window_start        TIMESTAMPTZ NOT NULL,
     window_end          TIMESTAMPTZ NOT NULL,
+    last_event_time     TIMESTAMPTZ NOT NULL,
     sim_day             INTEGER     NOT NULL,
     avg_heart_rate      DOUBLE PRECISION,
+    min_heart_rate      DOUBLE PRECISION,
+    max_heart_rate      DOUBLE PRECISION,
+    avg_spo2            DOUBLE PRECISION,
     min_spo2            DOUBLE PRECISION,
-    max_temperature     DOUBLE PRECISION,
+    max_spo2            DOUBLE PRECISION,
     avg_systolic_bp     DOUBLE PRECISION,
+    min_systolic_bp     DOUBLE PRECISION,
+    max_systolic_bp     DOUBLE PRECISION,
     avg_diastolic_bp    DOUBLE PRECISION,
+    min_diastolic_bp    DOUBLE PRECISION,
+    max_diastolic_bp    DOUBLE PRECISION,
+    avg_temperature     DOUBLE PRECISION,
+    min_temperature     DOUBLE PRECISION,
+    max_temperature     DOUBLE PRECISION,
     reading_count       INTEGER,
     abnormal_count      INTEGER,
     hr_trend            TEXT,          -- RISING / STABLE / FALLING

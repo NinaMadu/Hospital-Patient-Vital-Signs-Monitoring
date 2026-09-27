@@ -136,6 +136,26 @@ services:
       spark-master:
         condition: service_started
 
+  # Speed layer: one long-running Spark app with Q1 (A), Q2 (B) and Q3 (C).
+  # The driver runs here (client mode); executors run on spark-worker and connect back to it.
+  spark-streaming:
+    <<: *spark-common
+    hostname: spark-streaming
+    command: ["/opt/spark/bin/spark-submit",
+              "--conf", "spark.driver.host=spark-streaming",
+              "/opt/project/spark/streaming/app.py"]
+    ports:
+      - "4040:4040"          # Spark UI of the streaming app (Structured Streaming tab)
+    depends_on:
+      init-dirs:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
   # --------------------------------------------------------- orchestration --
   # Single-container Airflow (scheduler + webserver + triggerer) with LocalExecutor.
   # Its Spark driver runs here in client mode, so it mounts the same data paths as Spark.
