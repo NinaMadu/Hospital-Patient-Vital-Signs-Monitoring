@@ -6,15 +6,18 @@ FROM ${SPARK_IMAGE}
 
 USER root
 
-ARG MAVEN=https://repo1.maven.org/maven2
-ADD --chmod=644 ${MAVEN}/org/apache/spark/spark-sql-kafka-0-10_2.12/3.5.5/spark-sql-kafka-0-10_2.12-3.5.5.jar /opt/extra-jars/
-ADD --chmod=644 ${MAVEN}/org/apache/spark/spark-token-provider-kafka-0-10_2.12/3.5.5/spark-token-provider-kafka-0-10_2.12-3.5.5.jar /opt/extra-jars/
-ADD --chmod=644 ${MAVEN}/org/apache/kafka/kafka-clients/3.4.1/kafka-clients-3.4.1.jar /opt/extra-jars/
-ADD --chmod=644 ${MAVEN}/org/apache/commons/commons-pool2/2.11.1/commons-pool2-2.11.1.jar /opt/extra-jars/
-ADD --chmod=644 ${MAVEN}/org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar /opt/extra-jars/
-
 COPY docker/spark/requirements.txt /tmp/requirements.txt
 RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
+
+ARG MAVEN=https://repo1.maven.org/maven2
+ADD ${MAVEN}/org/apache/spark/spark-sql-kafka-0-10_2.12/3.5.5/spark-sql-kafka-0-10_2.12-3.5.5.jar \
+    ${MAVEN}/org/apache/spark/spark-token-provider-kafka-0-10_2.12/3.5.5/spark-token-provider-kafka-0-10_2.12-3.5.5.jar \
+    ${MAVEN}/org/apache/kafka/kafka-clients/3.4.1/kafka-clients-3.4.1.jar \
+    ${MAVEN}/org/apache/commons/commons-pool2/2.11.1/commons-pool2-2.11.1.jar \
+    ${MAVEN}/org/postgresql/postgresql/42.7.4/postgresql-42.7.4.jar \
+    /opt/extra-jars/
+# Files fetched by ADD from a URL are mode 600; make them readable by the 'spark' user.
+RUN chmod 755 /opt/extra-jars && chmod 644 /opt/extra-jars/*.jar
 
 ENV PYTHONPATH=/opt/project \
     SPARK_CONF_DIR=/opt/project/spark/conf \
