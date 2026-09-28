@@ -22,9 +22,27 @@ def dag():
     return bag.get_dag("daily_lab_consolidation")
 
 
-def test_task_order(dag):
-    assert [t.task_id for t in dag.topological_sort()] == [
-        "resolve_sim_day", "wait_for_lab_file", "validate_lab_file", "load_lab_results"]
+def test_task_graph(dag):
+    def downstream(task_id):
+        return sorted(dag.get_task(task_id).downstream_task_ids)
+
+    assert downstream("resolve_sim_day") == ["wait_for_lab_file", "wait_for_lake_settle"]
+    assert downstream("wait_for_lab_file") == ["validate_lab_file"]
+    assert downstream("validate_lab_file") == ["load_lab_results"]
+    assert downstream("wait_for_lake_settle") == ["vital_daily_summary"]
+    # The risk join needs both branches: loaded labs and the day's vital summary.
+    assert sorted(dag.get_task("risk_consolidation").upstream_task_ids) == [
+        "load_lab_results", "vital_daily_summary"]
+    assert downstream("risk_consolidation") == ["generate_report"]
+    assert downstream("generate_report") == []
+
+
+def test_spark_jobs_get_this_runs_sim_day(dag):
+    for task_id, script in [("vital_daily_summary", "vital_daily_summary.py"),
+                            ("risk_consolidation", "risk_consolidation.py")]:
+        task = dag.get_task(task_id)
+        assert task.application.endswith(f"spark/batch/{script}")
+        assert task.application_args == ["--sim-day", "{{ ti.xcom_pull(task_ids='resolve_sim_day') }}"]
 
 
 def test_sensor_waits_for_the_marker_not_the_csv(dag):

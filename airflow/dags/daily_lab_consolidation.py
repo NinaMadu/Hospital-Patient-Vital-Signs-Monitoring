@@ -1,8 +1,14 @@
-"""Daily batch workflow: wait for lab file -> validate -> load -> (B9: Spark summary + consolidation -> report).
+"""Daily batch workflow: wait for lab file -> validate -> load -> Spark summary + consolidation -> report.
 
 Owner: Member B.
 
-    resolve_sim_day -> wait_for_lab_file -> validate_lab_file -> load_lab_results
+    resolve_sim_day ─┬─> wait_for_lab_file -> validate_lab_file -> load_lab_results ─┐
+                     └─> wait_for_lake_settle -> vital_daily_summary (Spark, A4) ──────┴─>
+                             risk_consolidation (Spark, B8) -> generate_report (HTML + CSV)
+
+The two branches are independent (labs vs vitals), so they run in parallel; the risk join
+waits for both. Spark jobs are submitted to the standalone cluster (client mode: the driver
+runs in this Airflow container), each capped at 2 cores so they fit next to the streaming app.
 
 Which day?  The DAG runs once per simulated day (every SIM_DAY_SECONDS). A scheduled run
 processes the day that ended just before it ran: sim_day(data_interval_end) - 1. A manual
@@ -16,7 +22,11 @@ which the API exposes and Prometheus alerts on. A missing file makes the sensor 
 a bad file fails validation without retries (retrying cannot fix bad data).
 
 Metrics (Pushgateway job "daily_lab_consolidation"): rows and patients loaded, schema
-errors, file arrival time, last loaded sim day, load duration.
+errors, file arrival time, last loaded sim day, load duration. The Spark jobs push their own.
+
+Slow machines: if a run takes longer than one sim day, max_active_runs=1 + catchup=False make
+Airflow skip ahead to the latest day instead of queueing forever; re-run a skipped day with
+{"sim_day": N}.
 """
 from __future__ import annotations
 
@@ -27,7 +37,9 @@ from airflow import DAG
 from airflow.exceptions import AirflowFailException
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
+from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.sensors.filesystem import FileSensor
+from airflow.sensors.python import PythonSensor
 
 from common import lab_feed, metrics, sim_clock
 from common.config import get_settings
@@ -37,6 +49,8 @@ S = get_settings()
 DAY = timedelta(seconds=S.sim_clock.day_seconds)
 LANDING = S.paths.landing_labs
 DAG_ID = "daily_lab_consolidation"
+LAKE_SETTLE = timedelta(seconds=S.risk_consolidation.lake_settle_seconds)
+SIM_DAY_ARG = "{{ ti.xcom_pull(task_ids='resolve_sim_day') }}"
 
 log = get_logger(DAG_ID)
 
@@ -142,6 +156,21 @@ def load_lab_results(ti, **_) -> int:
     return n
 
 
+def lake_has_settled(ti, **_) -> bool:
+    """True once day N ended LAKE_SETTLE ago, so Q2 has committed day N's last readings.
+
+    Q2 writes the lake every 30 s; summarising right at the boundary could miss the tail
+    of the day. Always true at once when re-running an old day.
+    """
+    return datetime.now(timezone.utc) >= sim_clock.day_end(_day(ti)) + LAKE_SETTLE
+
+
+def generate_report(ti, **_) -> dict:
+    from reports.generate_report import generate
+
+    return generate(_day(ti))
+
+
 def on_task_failure(context) -> None:
     """Any failed task: a FAIL row in pipeline_health, so the API and Prometheus see it."""
     ti = context["task_instance"]
@@ -167,7 +196,7 @@ def on_task_failure(context) -> None:
 
 with DAG(
     dag_id=DAG_ID,
-    description="Lab file -> validate -> lab_results (+ risk consolidation and report in B9)",
+    description="Lab file + lake -> lab_results, vital summary, daily_patient_risk, HTML/CSV report",
     start_date=S.sim_clock.epoch,
     schedule=DAY,                       # one run per simulated day
     catchup=False,                      # don't backfill hundreds of past days on first start
@@ -199,4 +228,29 @@ with DAG(
     validate = PythonOperator(task_id="validate_lab_file", python_callable=validate_lab_file)
     load = PythonOperator(task_id="load_lab_results", python_callable=load_lab_results)
 
+    wait_for_lake = PythonSensor(
+        task_id="wait_for_lake_settle",
+        python_callable=lake_has_settled,
+        poke_interval=15,
+        timeout=DAY.total_seconds(),
+        mode="reschedule",
+        retries=0,
+    )
+
+    def spark_job(task_id: str, script: str) -> SparkSubmitOperator:
+        return SparkSubmitOperator(
+            task_id=task_id,
+            conn_id="spark_default",
+            application=f"/opt/project/spark/batch/{script}",
+            application_args=["--sim-day", SIM_DAY_ARG],   # templated: this run's sim day
+            name=f"{task_id}-day-{SIM_DAY_ARG}",
+            execution_timeout=timedelta(minutes=15),
+        )
+
+    vital_summary = spark_job("vital_daily_summary", "vital_daily_summary.py")
+    risk = spark_job("risk_consolidation", "risk_consolidation.py")
+    report = PythonOperator(task_id="generate_report", python_callable=generate_report)
+
     resolve >> wait_for_file >> validate >> load
+    resolve >> wait_for_lake >> vital_summary
+    [load, vital_summary] >> risk >> report

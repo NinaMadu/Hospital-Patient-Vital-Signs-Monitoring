@@ -55,6 +55,8 @@ paths:
 
 risk_consolidation:
   lab_max_age_days: 1         # day N uses each patient's newest labs from day N or N-1; older = LAB_UNAVAILABLE
+  lake_settle_seconds: 60     # wait this long after day N ends before summarising it: Q2 commits
+                              # to the lake every 30 s, so day N's last readings land after the boundary
 
 health:
   no_vitals_alert_seconds: 30
