@@ -65,8 +65,8 @@ Ninada's producer is on the critical path: Q1, Q2, Q3 and the API all need vital
 
 ### Day 1 · Mon 28 Sep: clock and producer
 
-- [ ] **A1. Simulated clock** in `common/sim_clock.py`: `sim_day(ts)`, `day_start(n)`, `day_end(n)`, `current_sim_day()`, reading `SIM_EPOCH` and `SIM_DAY_SECONDS` through `common/config.py`. Add a test in `tests/slice_a/test_sim_clock.py`. **Waits for:** B1.
-- [ ] **A2. Vitals producer** in `simulators/vital_producer/main.py`. It sends 15 patients (P001–P015), one reading per patient every 2–5 s, as JSON with `event_id, patient_id, bed_id, heart_rate, spo2, systolic_bp, diastolic_bp, temperature, timestamp`.
+- [x] **A1. Simulated clock** in `common/sim_clock.py`: `sim_day(ts)`, `day_start(n)`, `day_end(n)`, `current_sim_day()`, reading `SIM_EPOCH` and `SIM_DAY_SECONDS` through `common/config.py`. Add a test in `tests/slice_a/test_sim_clock.py`. **Waits for:** B1.
+- [x] **A2. Vitals producer** in `simulators/vital_producer/main.py`. It sends 15 patients (P001–P015), one reading per patient every 2–5 s, as JSON with `event_id, patient_id, bed_id, heart_rate, spo2, systolic_bp, diastolic_bp, temperature, timestamp`.
     - Kafka settings: key = `patient_id`, `acks=all`, retries, delivery callback.
     - Seeded random numbers.
     - Flags: `--scenario spike --patient P007` and `--malformed-rate 0.02` (a share of bad events, for testing).
@@ -76,7 +76,7 @@ Ninada's producer is on the critical path: Q1, Q2, Q3 and the API all need vital
 
 ### Day 2 · Tue 29 Sep: Q1 to PostgreSQL
 
-- [ ] **A3. Q1** in `spark/streaming/q1_windows.py`, started from `spark/streaming/app.py`:
+- [x] **A3. Q1** in `spark/streaming/q1_windows.py`, started from `spark/streaming/app.py`:
     1. Parse the JSON and validate it: nulls and out-of-range values are invalid.
     2. Send invalid records to `vitals-dlq` with a `reason` field.
     3. Drop duplicate `event_id`s with a 1-minute watermark.
@@ -87,26 +87,26 @@ Ninada's producer is on the critical path: Q1, Q2, Q3 and the API all need vital
 
 ### Day 3 · Wed 30 Sep: batch view + Checkpoint 1
 
-- [ ] **A4. Daily vital summary** in `spark/batch/vital_daily_summary.py`. It reads one `sim_day` from `/data/lake/vitals` and writes per-patient daily averages, minimums, maximums and counts to `vital_daily_summary`. A rerun replaces that day's rows. **Waits for:** B4. **Done when:** running it twice for one day gives the same rows.
-- [ ] **A5. Checkpoint 1.** A P007 spike shows in `patient_current_status` and in `/api/patients`.
+- [x] **A4. Daily vital summary** in `spark/batch/vital_daily_summary.py`. It reads one `sim_day` from `/data/lake/vitals` and writes per-patient daily averages, minimums, maximums and counts to `vital_daily_summary`. A rerun replaces that day's rows. **Waits for:** B4. **Done when:** running it twice for one day gives the same rows.
+- [x] **A5. Checkpoint 1.** A P007 spike shows in `patient_current_status` and in `/api/patients`.
 
 ### Day 4 · Thu 1 Oct: trend and risk
 
-- [ ] **A6. Trend and vital risk points** in Q1. Mark heart rate rising or SpO₂ falling across 3 consecutive windows, and score each window with `common/risk_rules.py`. Write `risk_score` and `risk_status` into `patient_current_status`. **Waits for:** B5.
+- [x] **A6. Trend and vital risk points** in Q1. Mark heart rate rising or SpO₂ falling across 3 consecutive windows, and score each window with `common/risk_rules.py`. Write `risk_score` and `risk_status` into `patient_current_status`. **Waits for:** B5.
 
 ### Day 5 · Fri 2 Oct: metrics, demo scenarios, freeze
 
-- [ ] **A7. Producer metrics and logs.** `events_sent_total`, `send_errors_total` and `last_event_timestamp` through `common/metrics.py`; JSON logs through `common/logger.py`. **Waits for:** C1.
-- [ ] **A8. Demo scenarios.** Seeded and repeatable: SpO₂ drop for P007, heart-rate spike, producer stop. **Done when:** the same seed gives the same alerts twice.
+- [x] **A7. Producer metrics and logs.** `events_sent_total`, `send_errors_total` and `last_event_timestamp` through `common/metrics.py`; JSON logs through `common/logger.py`. **Waits for:** C1.
+- [x] **A8. Demo scenarios.** Seeded and repeatable: SpO₂ drop for P007, heart-rate spike, producer stop. **Done when:** the same seed gives the same alerts twice.
 
 ### Day 6 · Sat 3 Oct: prove it
 
-- [ ] **A9. Tests** in `tests/slice_a/`: validation rules, window aggregation on a small DataFrame, simulator output fields.
+- [x] **A9. Tests** in `tests/slice_a/`: validation rules, window aggregation on a small DataFrame, simulator output fields.
 - [ ] **A10. Screenshots** to `docs/screenshots/`: Kafka UI partitions, the Spark streaming UI, `vitals-dlq` messages.
 
 ### Day 7–8 · Sun 4 – Mon 5 Oct: write and submit
 
-- [ ] **A11. Report:** §2 Business requirements, §3 Lambda vs Kappa (lead writer; B and C review, 20 marks), §6 Data design (schemas, topics, partitions, simulated clock), §7a Streaming processing.
+- [x] **A11. Report:** §2 Business requirements, §3 Lambda vs Kappa (lead writer; B and C review, 20 marks), §6 Data design (schemas, topics, partitions, simulated clock), §7a Streaming processing.
 - [ ] **A12. Demo video** 0:00–3:30: use case, architecture, Compose services, Kafka partitions, simulator, Spark streaming progress.
 
 ---
