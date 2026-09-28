@@ -31,11 +31,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from common.config import get_settings
-
-COLUMNS = (
-    "patient_id", "test_type", "result_value", "unit",
-    "reference_low", "reference_high", "collected_at",
-)
+from common.lab_feed import COLUMNS, file_path, marker_path  # the file contract, shared with the DAG
 
 
 @dataclass(frozen=True)
@@ -170,14 +166,6 @@ class LabSimulator:
 
 
 # ----------------------------------------------------------------- files --
-
-def file_path(output_dir: Path, day: int) -> Path:
-    return output_dir / f"labs_day={day}.csv"
-
-
-def marker_path(output_dir: Path, day: int) -> Path:
-    return output_dir / f"labs_day={day}.csv._SUCCESS"
-
 
 def _write_atomic(path: Path, text: str) -> None:
     """Write to a hidden temp file in the same folder, flush to disk, then rename.
