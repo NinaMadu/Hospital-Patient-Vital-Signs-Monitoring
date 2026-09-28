@@ -167,6 +167,34 @@ class RiskRules:
             total = total + pts(F.col(trend), self.trend_points)
         return total.cast("int")
 
+    def vital_reasons_col(
+        self,
+        avg_heart_rate: str = "avg_heart_rate",
+        min_spo2: str = "min_spo2",
+        max_temperature: str = "max_temperature",
+        max_systolic_bp: str = "max_systolic_bp",
+        min_systolic_bp: str | None = "min_systolic_bp",
+        trend: str | None = None,
+    ) -> Column:
+        """vital_points().reasons as a comma-separated string ('' when nothing fired)."""
+        from pyspark.sql import functions as F
+
+        hr, sbp_hi = F.col(avg_heart_rate), F.col(max_systolic_bp)
+        sbp_lo = F.col(min_systolic_bp) if min_systolic_bp else F.lit(None)
+        sbp_high = F.coalesce(sbp_hi > self.sbp_above, F.lit(False))
+        reasons = [
+            ("spo2_low", F.col(min_spo2) < self.spo2_below),
+            ("heart_rate_low", hr < self.hr_below),
+            ("heart_rate_high", hr > self.hr_above),
+            ("temperature_high", F.col(max_temperature) > self.temp_above),
+            ("systolic_bp_high", sbp_high),
+            ("systolic_bp_low", (sbp_lo < self.sbp_below) & ~sbp_high),   # BP scores once
+        ]
+        if trend:
+            reasons.append(("trend", F.col(trend)))
+        # concat_ws skips NULLs, and when() without otherwise() is NULL when not fired.
+        return F.concat_ws(",", *[F.when(cond, F.lit(name)) for name, cond in reasons])
+
     def lab_flag_col(self, value: str = "result_value", low: str = "reference_low",
                      high: str = "reference_high") -> Column:
         from pyspark.sql import functions as F
@@ -268,6 +296,10 @@ def combine(vital_score: int | None, lab_score: int | None) -> Combined:
 
 def vital_points_col(**kwargs) -> Column:
     return default_rules().vital_points_col(**kwargs)
+
+
+def vital_reasons_col(**kwargs) -> Column:
+    return default_rules().vital_reasons_col(**kwargs)
 
 
 def lab_flag_col(**kwargs) -> Column:

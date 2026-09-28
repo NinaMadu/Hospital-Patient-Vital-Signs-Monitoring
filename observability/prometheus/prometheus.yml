@@ -37,10 +37,7 @@ scrape_configs:
     static_configs:
       - targets: ["vital-producer:8001"]
 
-  # Add the lab feed here once it exposes metrics (B10).
   # Lab file simulator (B10): files written, newest sim day, time of the newest file.
   - job_name: lab-simulator
     static_configs:
       - targets: ["lab-simulator:8002"]
-
-  # Add the vital simulator here once it exposes /metrics (A7).

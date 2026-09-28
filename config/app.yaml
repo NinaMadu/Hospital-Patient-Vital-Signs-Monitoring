@@ -53,6 +53,9 @@ paths:
   landing_labs: /data/landing/labs
   reports: /data/reports
 
+risk_consolidation:
+  lab_max_age_days: 1         # day N uses each patient's newest labs from day N or N-1; older = LAB_UNAVAILABLE
+
 health:
   no_vitals_alert_seconds: 30
   lab_file_deadline_seconds: 60   # after the sim-day boundary
