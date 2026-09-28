@@ -56,11 +56,7 @@ def _push_metrics(task: str, **values: float) -> None:
 
     A push replaces every metric under the same job + grouping key, so each task pushes
     under its own key ({"task": ...}); otherwise the load push would erase the validate push.
-    Gauges are built directly on a fresh registry: metrics.gauge() caches by id(registry),
-    and a new registry can reuse the id of a garbage-collected one.
     """
-    from prometheus_client import Gauge
-
     reg = metrics.new_registry()
     help_text = {
         "lab_rows_loaded": "Lab result rows loaded by the last run",
@@ -71,7 +67,7 @@ def _push_metrics(task: str, **values: float) -> None:
         "lab_load_duration_seconds": "Seconds taken to load the last lab file",
     }
     for name, value in values.items():
-        Gauge(f"ward_{name}", help_text[name], registry=reg).set(value)
+        metrics.gauge(name, help_text[name], registry=reg).set(value)
     metrics.push(DAG_ID, registry=reg, grouping_key={"task": task})
 
 

@@ -24,6 +24,7 @@ lab_simulator:
   abnormal_patients: [P007]           # always has high CRP and lactate (matches the vitals demo)
   random_seed: 7
   landing_dir: /data/landing/labs
+  metrics_port: 8002                  # /metrics while running as a service (Prometheus scrapes it)
 
 kafka:
   bootstrap_servers: localhost:9094   # host default; containers get kafka:9092 (KAFKA_BOOTSTRAP_INTERNAL)

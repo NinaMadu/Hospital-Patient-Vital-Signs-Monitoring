@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("airflow")
+# "airflow" alone would match this repo's airflow/ folder (a namespace package) on PYTHONPATH.
+pytest.importorskip("airflow.models")
 from airflow.models import DagBag  # noqa: E402
 
 DAGS = Path(__file__).resolve().parents[2] / "airflow" / "dags"

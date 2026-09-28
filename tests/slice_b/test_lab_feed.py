@@ -116,7 +116,7 @@ class FakeCursor:
         self.log = log
 
     def execute(self, sql, params=None):
-        self.log.append((" ".join(sql.split())[:30], params))
+        self.log.append((sql, params))
 
     def __enter__(self):
         return self
@@ -150,7 +150,7 @@ def test_load_deletes_the_day_then_inserts_in_one_transaction(landing, monkeypat
     conn = FakeConn()
 
     assert lab_feed.load_rows(conn, DAY, rows, source_file="labs_day=3.csv") == len(rows)
-    assert conn.log[0] == ("DELETE FROM lab_results WHERE", (DAY,))
+    assert conn.log[0] == (lab_feed.DELETE_DAY_SQL, (DAY,))
     assert len(inserted) == len(rows) and inserted[0][0] == DAY and inserted[0][-1] == "labs_day=3.csv"
     assert conn.outcome == "commit"
 
@@ -169,4 +169,4 @@ def test_failed_insert_rolls_back(landing, monkeypatch):
 def test_empty_day_still_clears_old_rows():
     conn = FakeConn()
     assert lab_feed.load_rows(conn, DAY, [], source_file="x") == 0
-    assert conn.log == [("DELETE FROM lab_results WHERE", (DAY,))]
+    assert conn.log == [(lab_feed.DELETE_DAY_SQL, (DAY,))]
