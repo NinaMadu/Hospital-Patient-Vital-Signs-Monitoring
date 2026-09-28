@@ -11,12 +11,19 @@ Supports seeded, deterministic scenarios for the demo, e.g. --scenario spike --p
 
 The simulator (VitalSimulator) is pure Python with no Kafka dependency, so tests can check
 its output directly. main() wires it to a confluent-kafka Producer.
+
+Observability (A7): JSON logs through common/logger.py, and Prometheus metrics on
+http://vital-producer:8001/metrics (scraped by Prometheus, monitoring profile):
+    ward_producer_events_sent_total{partition}     readings Kafka acknowledged, per partition
+    ward_producer_send_errors_total                readings Kafka failed to deliver
+    ward_producer_last_event_timestamp_seconds     when Kafka last acknowledged a reading
 """
 from __future__ import annotations
 
 import argparse
 import heapq
 import json
+import os
 import random
 import signal
 import sys
@@ -25,7 +32,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from common import metrics
 from common.config import get_settings
+from common.logger import get_logger
 
 SETTINGS = get_settings()
 PATIENT_COUNT = SETTINGS.patients.count
@@ -33,6 +42,7 @@ MIN_INTERVAL_S = float(SETTINGS.vitals_simulator.min_interval_seconds)
 MAX_INTERVAL_S = float(SETTINGS.vitals_simulator.max_interval_seconds)
 SPIKE_PROBABILITY = SETTINGS.vitals_simulator.abnormal_spike_probability
 DEFAULT_SEED = SETTINGS.vitals_simulator.random_seed
+METRICS_PORT = int(os.getenv("VITAL_PRODUCER_METRICS_PORT", "8001"))
 
 FIELDS = (
     "event_id", "patient_id", "bed_id", "heart_rate", "spo2",
@@ -40,16 +50,13 @@ FIELDS = (
 )
 
 
-def log(event: str, severity: str = "INFO", **fields) -> None:
-    """One JSON object per line. Replaced by common.logger.get_logger in A7."""
-    record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
-        "component": "vital-producer",
-        "event": event,
-        "severity": severity,
-        **fields,
-    }
-    print(json.dumps(record), flush=True)
+log = get_logger("vital-producer")
+
+EVENTS_SENT = metrics.counter("producer_events_sent", "Vital readings acknowledged by Kafka",
+                              ["partition"])
+SEND_ERRORS = metrics.counter("producer_send_errors", "Vital readings Kafka failed to deliver")
+LAST_EVENT = metrics.gauge("producer_last_event_timestamp_seconds",
+                           "Unix time Kafka last acknowledged a vital reading")
 
 
 @dataclass
@@ -218,6 +225,8 @@ def build_producer(bootstrap: str):
 
 
 class DeliveryStats:
+    """Counts delivery results, in memory (for the log) and as Prometheus metrics."""
+
     def __init__(self):
         self.sent = 0
         self.errors = 0
@@ -228,12 +237,15 @@ class DeliveryStats:
         key = msg.key().decode() if msg.key() else None
         if err is not None:
             self.errors += 1
-            log("send_failed", "ERROR", patient_id=key, error=str(err))
+            SEND_ERRORS.inc()
+            log.error("send_failed", patient_id=key, error=str(err))
             return
         self.sent += 1
+        EVENTS_SENT.labels(partition=str(msg.partition())).inc()
+        LAST_EVENT.set_to_current_time()
         previous = self.partition_of.setdefault(key, msg.partition())
         if previous != msg.partition():
-            log("partition_changed", "WARN", patient_id=key, old=previous, new=msg.partition())
+            log.warning("partition_changed", patient_id=key, old=previous, new=msg.partition())
 
 
 def parse_args(argv=None):
@@ -278,9 +290,10 @@ def main(argv=None) -> int:
                 break
         return 0
 
+    metrics.start_metrics_server(METRICS_PORT)
     producer = build_producer(args.bootstrap)
     stats = DeliveryStats()
-    log("started", bootstrap=args.bootstrap, topic=args.topic, seed=args.seed,
+    log.info("started", bootstrap=args.bootstrap, topic=args.topic, seed=args.seed,
         scenario=args.scenario, patient=args.patient, malformed_rate=args.malformed_rate)
 
     for n, (pid, payload) in enumerate(sim.stream(max_events=args.max_events), start=1):
@@ -293,12 +306,12 @@ def main(argv=None) -> int:
                 producer.poll(1)
         producer.poll(0)  # serve delivery callbacks without blocking
         if n % 100 == 0:
-            log("progress", sent=stats.sent, errors=stats.errors)
+            log.info("progress", sent=stats.sent, errors=stats.errors)
         if stopping:
             break
 
     remaining = producer.flush(15)
-    log("stopped", sent=stats.sent, errors=stats.errors, undelivered=remaining,
+    log.info("stopped", sent=stats.sent, errors=stats.errors, undelivered=remaining,
         partitions=stats.partition_of)
     return 0 if remaining == 0 else 1
 

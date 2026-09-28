@@ -25,6 +25,15 @@ groups:
           summary: "No vital readings reached Kafka for 30 s"
           description: "The bedside simulator (vital-producer) or Kafka has stopped. Check: docker compose ps vital-producer kafka"
 
+      - alert: ProducerSendErrors
+        # Kafka rejected or timed out vital readings (after the producer's own retries).
+        expr: increase(ward_producer_send_errors_total[1m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "vital-producer failed to deliver {{ $value }} readings in the last minute"
+          description: "Kafka is down or unreachable from the producer. Check: docker compose logs vital-producer kafka"
+
   # ---- speed layer: is Spark keeping up? (StreamingQueryListener -> Pushgateway) --------
   - name: speed-layer
     rules:
