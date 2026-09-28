@@ -9,7 +9,7 @@ import os
 
 from pyspark.sql import DataFrame, SparkSession
 
-from spark.streaming import q1_windows
+from spark.streaming import q1_windows, q2_archive
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_INTERNAL", "kafka:9092")
 VITALS_TOPIC = os.getenv("VITALS_TOPIC", "patient-vitals")
@@ -34,7 +34,8 @@ def main() -> None:
     spark.sparkContext.setLogLevel("WARN")
 
     q1_windows.start(read_vitals(spark), KAFKA_BOOTSTRAP)
-    # q2_archive.start(read_vitals(spark, "earliest"))   # Member B (B4)
+    # Q2 starts from the earliest retained offset so the lake holds all history (first start only).
+    q2_archive.start(read_vitals(spark, "earliest"))   # Member B (B4)
     # q3_alerts.start(read_vitals(spark), KAFKA_BOOTSTRAP)  # Member C (C3)
 
     spark.streams.awaitAnyTermination()
