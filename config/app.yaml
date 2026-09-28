@@ -17,7 +17,12 @@ vitals_simulator:
 
 lab_simulator:
   tests: [potassium, creatinine, haemoglobin, wbc, crp, lactate]
-  missing_result_probability: 0.05
+  missing_result_probability: 0.05    # one test missing for a patient
+  missing_patient_probability: 0.10   # no labs at all for a patient -> LAB_UNAVAILABLE
+  out_of_range_probability: 0.12      # a result outside its reference range
+  far_out_of_range_share: 0.30        # share of those beyond 1.5x the limit
+  abnormal_patients: [P007]           # always has high CRP and lactate (matches the vitals demo)
+  random_seed: 7
   landing_dir: /data/landing/labs
 
 kafka:
