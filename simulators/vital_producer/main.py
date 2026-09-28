@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import heapq
 import json
-import os
 import random
 import signal
 import sys
@@ -26,13 +25,14 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-# TODO(A1/B1): read these defaults through common.config.get_settings() once B1 is merged.
-# Until then they mirror config/app.yaml, and .env supplies the Kafka address and topic.
-PATIENT_COUNT = 15
-MIN_INTERVAL_S = 2.0
-MAX_INTERVAL_S = 5.0
-SPIKE_PROBABILITY = 0.03
-DEFAULT_SEED = 42
+from common.config import get_settings
+
+SETTINGS = get_settings()
+PATIENT_COUNT = SETTINGS.patients.count
+MIN_INTERVAL_S = float(SETTINGS.vitals_simulator.min_interval_seconds)
+MAX_INTERVAL_S = float(SETTINGS.vitals_simulator.max_interval_seconds)
+SPIKE_PROBABILITY = SETTINGS.vitals_simulator.abnormal_spike_probability
+DEFAULT_SEED = SETTINGS.vitals_simulator.random_seed
 
 FIELDS = (
     "event_id", "patient_id", "bed_id", "heart_rate", "spo2",
@@ -238,9 +238,9 @@ class DeliveryStats:
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Ward vital-sign simulator -> Kafka")
-    p.add_argument("--bootstrap", default=os.getenv("KAFKA_BOOTSTRAP_INTERNAL", "localhost:9094"))
-    p.add_argument("--topic", default=os.getenv("VITALS_TOPIC", "patient-vitals"))
-    p.add_argument("--seed", type=int, default=int(os.getenv("VITALS_SEED", DEFAULT_SEED)))
+    p.add_argument("--bootstrap", default=SETTINGS.kafka.bootstrap_servers)
+    p.add_argument("--topic", default=SETTINGS.kafka.topics.vitals)
+    p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument("--scenario", choices=["none", "spike"], default="none")
     p.add_argument("--patient", default="P007", help="patient for --scenario")
     p.add_argument("--scenario-start", type=float, default=60.0, help="seconds after start")
