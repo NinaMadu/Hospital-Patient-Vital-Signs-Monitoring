@@ -107,6 +107,8 @@ docker compose stop vital-producer
 docker compose run --rm vital-producer python -m simulators.vital_producer.main --scenario spike --patient P007 --scenario-start 10
 ```
 
+Other scenarios: `--scenario hr_spike`, `spo2_drop` (steady SpO2 fall, shows the FALLING trend) and `outage` (the whole feed goes silent, fires `NoVitalsReceived`). The same `--seed` gives the same alerts every run; see the docstring in [simulators/vital_producer/main.py](simulators/vital_producer/main.py). Afterwards, `docker compose start vital-producer` brings back the normal ward.
+
 ## Verify the environment
 
 1. **Kafka topics:** the `kafka-init` log lists `patient-vitals` (3 partitions), `vitals-dlq` (1) and `patient-alerts` (3):

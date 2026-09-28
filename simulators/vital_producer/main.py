@@ -2,12 +2,25 @@
 
 Owner: Member A.
 Emits one JSON reading per patient every 2-5 s to topic patient-vitals, keyed by patient_id.
-Supports seeded, deterministic scenarios for the demo, e.g. --scenario spike --patient P007.
 
     python -m simulators.vital_producer.main                          # normal ward, to Kafka
-    python -m simulators.vital_producer.main --scenario spike --patient P007
     python -m simulators.vital_producer.main --malformed-rate 0.02    # some bad events for the DLQ
     python -m simulators.vital_producer.main --dry-run --max-events 20  # print, no Kafka
+
+Demo scenarios (A8) run from --scenario-start for --scenario-duration seconds:
+    spike      P007 deteriorates at once: heart rate 135-160 and SpO2 84-89
+    hr_spike   P007 heart rate 135-160, other vitals normal
+    spo2_drop  P007 SpO2 falls steadily by 12 points while heart rate climbs by 40
+    outage     the whole feed goes silent (no readings from any patient), then resumes
+
+    docker compose stop vital-producer
+    docker compose run --rm vital-producer python -m simulators.vital_producer.main \
+        --scenario spo2_drop --patient P007 --scenario-start 30
+
+Repeatable: the same --seed and scenario give the same values at the same offsets from the
+start, so the same alerts fire every run. Only timestamps and event_ids differ; event_ids are
+fresh each run on purpose, otherwise a rerun would repeat old event_ids and Q3's alert ids
+(<event_id>:<rule>) would be dropped as duplicates.
 
 The simulator (VitalSimulator) is pure Python with no Kafka dependency, so tests can check
 its output directly. main() wires it to a confluent-kafka Producer.
@@ -44,6 +57,9 @@ SPIKE_PROBABILITY = SETTINGS.vitals_simulator.abnormal_spike_probability
 DEFAULT_SEED = SETTINGS.vitals_simulator.random_seed
 METRICS_PORT = int(os.getenv("VITAL_PRODUCER_METRICS_PORT", "8001"))
 
+SCENARIOS = ("none", "spike", "hr_spike", "spo2_drop", "outage")
+PATIENT_SCENARIOS = ("spike", "hr_spike", "spo2_drop")
+
 FIELDS = (
     "event_id", "patient_id", "bed_id", "heart_rate", "spo2",
     "systolic_bp", "diastolic_bp", "temperature", "timestamp",
@@ -72,8 +88,8 @@ class Baseline:
 class VitalSimulator:
     """Generates readings for a ward of patients from one seeded random generator.
 
-    Same seed + same arguments => same sequence of patients, values and event_ids.
-    Only the `timestamp` field (wall clock) differs between runs.
+    Same seed + same arguments => same sequence of patients and values. The `timestamp`
+    (wall clock) and `event_id` (unique per run) differ between runs.
     """
 
     def __init__(
@@ -122,10 +138,18 @@ class VitalSimulator:
         dia_bp = b.diastolic_bp + r.gauss(0, 3)
         temp = b.temperature + r.gauss(0, 0.1)
 
-        if self._in_scenario(patient_id, elapsed_s):
-            # Sustained deterioration: tachycardia with falling oxygen saturation.
-            hr = r.uniform(135, 160)
-            spo2 = r.uniform(84, 89)
+        progress = self.scenario_progress(elapsed_s)
+        if progress is not None and self.scenario in PATIENT_SCENARIOS \
+                and patient_id == self.scenario_patient:
+            if self.scenario == "spike":
+                # Sudden deterioration: tachycardia with low oxygen saturation.
+                hr = r.uniform(135, 160)
+                spo2 = r.uniform(84, 89)
+            elif self.scenario == "hr_spike":
+                hr = r.uniform(135, 160)
+            else:  # spo2_drop: a steady fall, so Q1 sees SpO2 FALLING across windows
+                spo2 = b.spo2 - 12 * progress + r.gauss(0, 0.3)
+                hr = b.heart_rate + 40 * progress + r.gauss(0, 2)
         elif r.random() < self.spike_probability:
             # A short, random abnormal spike on one vital (a single-reading event).
             kind = r.choice(["heart_rate", "spo2", "systolic_bp", "temperature"])
@@ -140,7 +164,7 @@ class VitalSimulator:
 
         now = now or datetime.now(timezone.utc)
         return {
-            "event_id": str(uuid.UUID(int=r.getrandbits(128), version=4)),
+            "event_id": str(uuid.uuid4()),   # not from the seeded rng: unique across runs
             "patient_id": patient_id,
             "bed_id": self.beds[patient_id],
             "heart_rate": round(hr),
@@ -151,12 +175,11 @@ class VitalSimulator:
             "timestamp": now.isoformat(timespec="milliseconds"),
         }
 
-    def _in_scenario(self, patient_id: str, elapsed_s: float) -> bool:
-        return (
-            self.scenario == "spike"
-            and patient_id == self.scenario_patient
-            and self.scenario_start_s <= elapsed_s < self.scenario_end_s
-        )
+    def scenario_progress(self, elapsed_s: float) -> float | None:
+        """0.0 -> 1.0 through the scenario window, or None outside it (or with no scenario)."""
+        if self.scenario == "none" or not self.scenario_start_s <= elapsed_s < self.scenario_end_s:
+            return None
+        return (elapsed_s - self.scenario_start_s) / (self.scenario_end_s - self.scenario_start_s)
 
     def maybe_corrupt(self, event: dict) -> str:
         """Serialise the event; with probability malformed_rate, break it on purpose.
@@ -189,15 +212,23 @@ class VitalSimulator:
         due = [(self.next_interval() * self.rng.random(), pid) for pid in self.patients]
         heapq.heapify(due)
         sent = 0
+        active = False
         while max_events is None or sent < max_events:
             due_at, pid = heapq.heappop(due)
             wait = start + due_at - clock()
             if wait > 0:
                 sleep(wait)
+            if (self.scenario_progress(due_at) is not None) != active:
+                active = not active
+                log.info("scenario_started" if active else "scenario_ended",
+                         scenario=self.scenario, patient=self.scenario_patient,
+                         elapsed_s=round(due_at, 1))
+            heapq.heappush(due, (due_at + self.next_interval(), pid))
+            if active and self.scenario == "outage":
+                continue   # the reading is lost: nothing reaches Kafka during the outage
             payload = self.maybe_corrupt(self.reading(pid, elapsed_s=due_at))
             yield pid, payload
             sent += 1
-            heapq.heappush(due, (due_at + self.next_interval(), pid))
 
 
 # ------------------------------------------------------------------- Kafka --
@@ -253,7 +284,7 @@ def parse_args(argv=None):
     p.add_argument("--bootstrap", default=SETTINGS.kafka.bootstrap_servers)
     p.add_argument("--topic", default=SETTINGS.kafka.topics.vitals)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    p.add_argument("--scenario", choices=["none", "spike"], default="none")
+    p.add_argument("--scenario", choices=SCENARIOS, default="none")
     p.add_argument("--patient", default="P007", help="patient for --scenario")
     p.add_argument("--scenario-start", type=float, default=60.0, help="seconds after start")
     p.add_argument("--scenario-duration", type=float, default=180.0)
