@@ -32,6 +32,12 @@ scrape_configs:
     static_configs:
       - targets: ["alert-consumer:8001"]
 
+  # Bedside simulator / Kafka producer (A7).
+  - job_name: vital-producer
+    static_configs:
+      - targets: ["vital-producer:8001"]
+
+  # Add the lab feed here once it exposes metrics (B10).
   # Lab file simulator (B10): files written, newest sim day, time of the newest file.
   - job_name: lab-simulator
     static_configs:
