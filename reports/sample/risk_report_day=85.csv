@@ -1,0 +1,16 @@
+sim_day,patient_id,risk_category,total_risk_score,vital_risk_score,vital_only_category,lab_risk_score,lab_sim_day,lab_status,labs_changed_category,change_vs_previous_day,abnormal_labs,vital_reasons,alerts_today
+85,P007,CONCERNING,12,4,CONCERNING,8,85,AVAILABLE,False,,"creatinine:HIGH,crp:HIGH,haemoglobin:LOW,lactate:HIGH","spo2_low,temperature_high,systolic_bp_high",0
+85,P003,CONCERNING,4,3,WATCH,1,85,AVAILABLE,True,,lactate:HIGH,"spo2_low,systolic_bp_high",0
+85,P005,CONCERNING,4,4,CONCERNING,0,85,AVAILABLE,False,,,"spo2_low,temperature_high,systolic_bp_high",0
+85,P006,CONCERNING,4,2,WATCH,2,85,AVAILABLE,True,,lactate:HIGH,"temperature_high,systolic_bp_high",0
+85,P011,CONCERNING,4,3,WATCH,1,85,AVAILABLE,True,,crp:HIGH,"spo2_low,temperature_high",0
+85,P012,WATCH,3,3,WATCH,0,85,AVAILABLE,False,,,"spo2_low,systolic_bp_high",0
+85,P014,WATCH,3,3,WATCH,0,85,AVAILABLE,False,,,"spo2_low,temperature_high",0
+85,P002,WATCH,2,2,WATCH,0,85,AVAILABLE,False,,,spo2_low,0
+85,P001,NORMAL,1,0,NORMAL,1,85,AVAILABLE,False,,creatinine:HIGH,,0
+85,P013,NORMAL,1,0,NORMAL,1,85,AVAILABLE,False,,wbc:HIGH,,0
+85,P015,NORMAL,1,1,NORMAL,0,85,AVAILABLE,False,,,temperature_high,0
+85,P004,NORMAL,0,0,NORMAL,0,84,AVAILABLE,False,,,,0
+85,P008,NORMAL,0,0,NORMAL,0,85,AVAILABLE,False,,,,0
+85,P009,NORMAL,0,0,NORMAL,0,85,AVAILABLE,False,,,,0
+85,P010,NORMAL,0,0,NORMAL,0,85,AVAILABLE,False,,,,0

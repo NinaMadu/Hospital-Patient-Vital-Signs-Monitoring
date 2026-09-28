@@ -49,3 +49,16 @@ def test_push_success(monkeypatch):
                         lambda gw, job, registry, grouping_key, timeout: calls.append((gw, job)))
     assert metrics.push("daily_job", metrics.new_registry(), gateway="pg:9091") is True
     assert calls == [("pg:9091", "daily_job")]
+
+
+def test_new_registry_never_gets_a_stale_cached_metric():
+    # Regression: the cache was keyed by id(registry); CPython reuses ids of collected
+    # objects, so a fresh registry could get a gauge bound to a dead one and push nothing.
+    import gc
+
+    for _ in range(200):
+        reg = metrics.new_registry()
+        metrics.gauge("lab_rows_loaded", "x", registry=reg).set(7)
+        assert reg.get_sample_value("ward_lab_rows_loaded") == 7
+        del reg
+        gc.collect()

@@ -69,3 +69,19 @@ def test_category_col_matches_python(spark):
     df = spark.createDataFrame([(t,) for t in totals], "total_risk_score int")
     got = {r.total_risk_score: r.cat for r in df.select("*", R.category_col().alias("cat")).collect()}
     assert got == {t: R.category(t) for t in totals}
+
+
+def test_vital_reasons_col_matches_python(spark):
+    hrs, spo2s, temps = [None, 49.9, 50.0, 120.1], [None, 91.9, 92.0], [None, 38.1]
+    sbp_pairs = [(None, None), (161.0, 90.0), (160.0, 89.0), (170.0, 85.0), (None, 85.0)]
+    trends = [None, False, True]
+    rows = [(hr, sp, t, hi, lo, tr) for hr, sp, t, (hi, lo), tr
+            in itertools.product(hrs, spo2s, temps, sbp_pairs, trends)]
+    df = spark.createDataFrame(
+        rows, "avg_heart_rate double, min_spo2 double, max_temperature double, "
+              "max_systolic_bp double, min_systolic_bp double, trend boolean")
+    for r in df.withColumn("reasons", R.vital_reasons_col(trend="trend")).collect():
+        expected = R.vital_points(avg_heart_rate=r.avg_heart_rate, min_spo2=r.min_spo2,
+                                  max_temperature=r.max_temperature, max_systolic_bp=r.max_systolic_bp,
+                                  min_systolic_bp=r.min_systolic_bp, trend=r.trend).reasons
+        assert r.reasons == ",".join(expected), r

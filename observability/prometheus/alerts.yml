@@ -111,6 +111,26 @@ groups:
           summary: "Newest lab results are {{ $value }} sim days old (yesterday's file not loaded)"
           description: "The lab file is missing or the daily_lab_consolidation DAG failed. Check Airflow."
 
+      - alert: LabFileInvalid
+        # The last lab file the DAG validated had problems (pushed by validate_lab_file, B10).
+        expr: ward_lab_schema_errors > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Last lab file failed validation with {{ $value }} problem(s)"
+          description: "See the validate_lab_file task log in Airflow (daily_lab_consolidation)."
+
+      - alert: LabFeedStopped
+        # The lab simulator has written no file for 2 sim days (2 x 300 s).
+        # `A and B` keeps A's value, so the age comes first ($value = seconds since the last file).
+        expr: time() - ward_lab_sim_last_file_timestamp_seconds > 600 and ward_lab_sim_last_file_timestamp_seconds > 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "No new lab file for {{ $value | humanizeDuration }}"
+          description: "The lab source (lab-simulator) has stopped. Check: docker compose logs lab-simulator"
+
       - alert: PipelineFailureRecorded
         expr: ward_pipeline_health_recent_failures > 0
         labels:

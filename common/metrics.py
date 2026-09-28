@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+import weakref
 from typing import Iterable
 
 from prometheus_client import (
@@ -48,7 +49,10 @@ PUSHGATEWAY = os.getenv("PUSHGATEWAY_URL", "pushgateway:9091")
 
 _log = get_logger("metrics")
 _lock = threading.Lock()
-_metrics: dict[tuple[int, str], object] = {}
+# registry -> {metric name -> metric}. Weak keys: when a private registry (new_registry())
+# is garbage-collected its entries go too. Keying by id(registry) was unsafe: CPython
+# reuses ids, so a new registry could get a cached metric bound to a dead one.
+_metrics: "weakref.WeakKeyDictionary[CollectorRegistry, dict[str, object]]" = weakref.WeakKeyDictionary()
 _last_push_error = 0.0
 
 
@@ -59,15 +63,15 @@ def _full_name(name: str) -> str:
 def _get_or_create(kind, name: str, documentation: str, labelnames: Iterable[str],
                    registry: CollectorRegistry, **kwargs):
     full = _full_name(name)
-    key = (id(registry), full)
     with _lock:
-        existing = _metrics.get(key)
+        in_registry = _metrics.setdefault(registry, {})
+        existing = in_registry.get(full)
         if existing is not None:
             if not isinstance(existing, kind):
                 raise ValueError(f"metric {full} already exists as {type(existing).__name__}")
             return existing
         metric = kind(full, documentation, labelnames=tuple(labelnames), registry=registry, **kwargs)
-        _metrics[key] = metric
+        in_registry[full] = metric
         return metric
 
 

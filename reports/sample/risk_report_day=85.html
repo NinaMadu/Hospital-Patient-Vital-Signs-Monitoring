@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ward risk report – sim day 85</title>
+<style>
+  :root { --fg:#1d2433; --muted:#6b7280; --line:#e5e7eb; --bg:#ffffff; --panel:#f8fafc;
+          --red:#b42318; --red-bg:#fee4e2; --amber:#b54708; --amber-bg:#fef0c7;
+          --green:#067647; --green-bg:#dcfae6; }
+  body { font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--fg);
+         background:var(--bg); margin:0; padding:24px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .question { background:var(--panel); border-left:4px solid var(--fg); padding:10px 14px; margin:0 0 20px; }
+  .cards { display:flex; gap:12px; flex-wrap:wrap; margin:0 0 20px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:10px 16px; min-width:120px; }
+  .card b { display:block; font-size:24px; }
+  .card.concerning b { color:var(--red); } .card.watch b { color:var(--amber); }
+  .card.normal b { color:var(--green); }
+  .notes p { margin:4px 0; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; margin-top:16px; }
+  th, td { border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { font-size:12px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td.pid { font-weight:600; }
+  .badge { padding:1px 8px; border-radius:10px; font-size:12px; font-weight:600; }
+  .badge.concerning { color:var(--red); background:var(--red-bg); }
+  .badge.watch { color:var(--amber); background:var(--amber-bg); }
+  .badge.normal { color:var(--green); background:var(--green-bg); }
+  .up { color:var(--red); font-weight:600; } .down { color:var(--green); font-weight:600; }
+  .muted { color:var(--muted); } .warn { color:var(--amber); font-weight:600; }
+  .changed { color:var(--red); }
+  footer { color:var(--muted); font-size:12px; margin-top:24px; }
+</style></head>
+<body>
+<h1>Ward risk report · sim day 85</h1>
+<p class="sub">2026-09-28 07:05:00 – 07:10:00 UTC · generated 2026-09-28 07:22:07 UTC</p>
+<p class="question"><b>Which patients show concerning vital-sign trends, and how do the latest lab results
+change the risk picture?</b> Total score = vital points (daily summary) + lab points (newest labs,
+at most one day old). 0–1 NORMAL · 2–3 WATCH · 4+ CONCERNING.</p>
+<div class="cards">
+  <div class="card concerning"><b>5</b>concerning</div>
+  <div class="card watch"><b>3</b>watch</div>
+  <div class="card normal"><b>7</b>normal</div>
+  <div class="card"><b>0</b>labs unavailable</div>
+</div>
+<div class="notes">
+  <p><b>Labs changed the category for:</b> <b>P003</b> (WATCH &rarr; CONCERNING), <b>P006</b> (WATCH &rarr; CONCERNING), <b>P011</b> (WATCH &rarr; CONCERNING)</p>
+  <p><b>No recent labs (LAB_UNAVAILABLE, scored on vitals only):</b> none</p>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Patient</th><th>Category</th><th>Total</th><th>vs yesterday</th><th>Vital pts</th>
+<th>Vital reasons</th><th>Lab pts</th><th>Abnormal labs</th><th>Lab day</th><th>Labs changed</th><th>Alerts</th></tr></thead>
+<tbody>
+<tr>
+  <td class="pid">P007</td>
+  <td><span class="badge concerning">CONCERNING</span></td>
+  <td class="num">12</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">4</td>
+  <td>spo2_low,temperature_high,systolic_bp_high</td>
+  <td class="num">8</td>
+  <td>creatinine:HIGH,crp:HIGH,haemoglobin:LOW,lactate:HIGH</td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P003</td>
+  <td><span class="badge concerning">CONCERNING</span></td>
+  <td class="num">4</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">3</td>
+  <td>spo2_low,systolic_bp_high</td>
+  <td class="num">1</td>
+  <td>lactate:HIGH</td>
+  <td class="num">85</td>
+  <td><span class="changed">WATCH &rarr; CONCERNING</span></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P005</td>
+  <td><span class="badge concerning">CONCERNING</span></td>
+  <td class="num">4</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">4</td>
+  <td>spo2_low,temperature_high,systolic_bp_high</td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P006</td>
+  <td><span class="badge concerning">CONCERNING</span></td>
+  <td class="num">4</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">2</td>
+  <td>temperature_high,systolic_bp_high</td>
+  <td class="num">2</td>
+  <td>lactate:HIGH</td>
+  <td class="num">85</td>
+  <td><span class="changed">WATCH &rarr; CONCERNING</span></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P011</td>
+  <td><span class="badge concerning">CONCERNING</span></td>
+  <td class="num">4</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">3</td>
+  <td>spo2_low,temperature_high</td>
+  <td class="num">1</td>
+  <td>crp:HIGH</td>
+  <td class="num">85</td>
+  <td><span class="changed">WATCH &rarr; CONCERNING</span></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P012</td>
+  <td><span class="badge watch">WATCH</span></td>
+  <td class="num">3</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">3</td>
+  <td>spo2_low,systolic_bp_high</td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P014</td>
+  <td><span class="badge watch">WATCH</span></td>
+  <td class="num">3</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">3</td>
+  <td>spo2_low,temperature_high</td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P002</td>
+  <td><span class="badge watch">WATCH</span></td>
+  <td class="num">2</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">2</td>
+  <td>spo2_low</td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P001</td>
+  <td><span class="badge normal">NORMAL</span></td>
+  <td class="num">1</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">1</td>
+  <td>creatinine:HIGH</td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P013</td>
+  <td><span class="badge normal">NORMAL</span></td>
+  <td class="num">1</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">1</td>
+  <td>wbc:HIGH</td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P015</td>
+  <td><span class="badge normal">NORMAL</span></td>
+  <td class="num">1</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">1</td>
+  <td>temperature_high</td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P004</td>
+  <td><span class="badge normal">NORMAL</span></td>
+  <td class="num">0</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">84</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P008</td>
+  <td><span class="badge normal">NORMAL</span></td>
+  <td class="num">0</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P009</td>
+  <td><span class="badge normal">NORMAL</span></td>
+  <td class="num">0</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+<tr>
+  <td class="pid">P010</td>
+  <td><span class="badge normal">NORMAL</span></td>
+  <td class="num">0</td>
+  <td class="num"><span class="muted">new</span></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">0</td>
+  <td></td>
+  <td class="num">85</td>
+  <td></td>
+  <td class="num">0</td>
+</tr>
+</tbody></table></div>
+<footer>Project-defined rules for an academic data-engineering exercise (EC8203) — not clinical guidance.
+Source: daily_patient_risk, vital_alerts. Ward Vitals pipeline, batch layer.</footer>
+</body></html>

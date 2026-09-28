@@ -30,12 +30,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from common import metrics
 from common.config import get_settings
-
-COLUMNS = (
-    "patient_id", "test_type", "result_value", "unit",
-    "reference_low", "reference_high", "collected_at",
-)
+from common.lab_feed import COLUMNS, file_path, marker_path  # the file contract, shared with the DAG
+from common.logger import get_logger
 
 
 @dataclass(frozen=True)
@@ -62,20 +60,22 @@ LAB_CATALOGUE: dict[str, LabTest] = {
 ABNORMAL_PATIENT_TESTS = ("crp", "lactate")
 
 
-def log(event: str, severity: str = "INFO", **fields) -> None:
-    """One JSON object per line. Replaced by common.logger.get_logger in B10."""
-    record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
-        "component": "lab-simulator",
-        "event": event,
-        "severity": severity,
-        **fields,
-    }
-    print(json.dumps(record), flush=True)
+log = get_logger("lab-simulator")
+
+# Served on /metrics (lab_simulator.metrics_port) while the service runs; Prometheus scrapes it.
+FILES_WRITTEN = metrics.counter("lab_sim_files_written", "Lab files written by the simulator")
+ROWS_WRITTEN = metrics.counter("lab_sim_rows_written", "Lab result rows written")
+LAST_DAY = metrics.gauge("lab_sim_last_written_sim_day", "Sim day of the newest lab file written")
+LAST_FILE_TIME = metrics.gauge("lab_sim_last_file_timestamp_seconds",
+                               "Unix time the newest lab file was written")
+MISSING_PATIENTS = metrics.gauge("lab_sim_missing_patients",
+                                 "Patients with no labs in the newest file (-> LAB_UNAVAILABLE)")
+OUT_OF_RANGE = metrics.gauge("lab_sim_out_of_range_results", "Out-of-range results in the newest file")
 
 
-# TODO(A1): replace these two with common.sim_clock once Ninada's clock is merged.
-# Same formula as the contract: sim_day = floor((ts - SIM_EPOCH) / SIM_DAY_SECONDS).
+# Same formula as common.sim_clock: sim_day = floor((ts - SIM_EPOCH) / SIM_DAY_SECONDS).
+# Kept local because LabSimulator takes epoch/day_seconds as arguments, so tests can run it
+# on their own clock instead of the global settings.
 def _sim_day(ts: datetime, epoch: datetime, day_seconds: int) -> int:
     return math.floor((ts - epoch).total_seconds() / day_seconds)
 
@@ -171,14 +171,6 @@ class LabSimulator:
 
 # ----------------------------------------------------------------- files --
 
-def file_path(output_dir: Path, day: int) -> Path:
-    return output_dir / f"labs_day={day}.csv"
-
-
-def marker_path(output_dir: Path, day: int) -> Path:
-    return output_dir / f"labs_day={day}.csv._SUCCESS"
-
-
 def _write_atomic(path: Path, text: str) -> None:
     """Write to a hidden temp file in the same folder, flush to disk, then rename.
 
@@ -198,7 +190,10 @@ def write_day(sim: LabSimulator, output_dir: Path, day: int, force: bool = False
     output_dir.mkdir(parents=True, exist_ok=True)
     target, marker = file_path(output_dir, day), marker_path(output_dir, day)
     if marker.exists() and not force:
-        log("day_skipped", sim_day=day, reason="already written", path=str(target))
+        log.info("day_skipped", sim_day=day, reason="already written", path=str(target))
+        # The file exists, so after a restart the "newest file" gauges still tell the truth.
+        LAST_DAY.set(day)
+        LAST_FILE_TIME.set(marker.stat().st_mtime)
         return None
 
     marker.unlink(missing_ok=True)  # on --force, readers must not see an old marker with new data
@@ -222,9 +217,15 @@ def write_day(sim: LabSimulator, output_dir: Path, day: int, force: bool = False
     out_of_range = sum(
         1 for r in rows if not r["reference_low"] <= r["result_value"] <= r["reference_high"]
     )
-    log("day_written", sim_day=day, path=str(target), rows=len(rows),
-        patients=len(patients), missing_patients=len(sim.patients) - len(patients),
-        out_of_range=out_of_range)
+    missing = len(sim.patients) - len(patients)
+    FILES_WRITTEN.inc()
+    ROWS_WRITTEN.inc(len(rows))
+    LAST_DAY.set(day)
+    LAST_FILE_TIME.set(time.time())
+    MISSING_PATIENTS.set(missing)
+    OUT_OF_RANGE.set(out_of_range)
+    log.info("day_written", sim_day=day, path=str(target), rows=len(rows),
+             patients=len(patients), missing_patients=missing, out_of_range=out_of_range)
     return target
 
 
@@ -263,7 +264,7 @@ def run_forever(sim: LabSimulator, output_dir: Path, now=lambda: datetime.now(ti
     """Write each day's file just after that day ends. Catches up the last finished day on start."""
     current = _sim_day(now(), sim.epoch, sim.day_seconds)
     if current < 0:
-        log("waiting_for_epoch", epoch=sim.epoch.isoformat(), current_sim_day=current)
+        log.info("waiting_for_epoch", epoch=sim.epoch.isoformat(), current_sim_day=current)
     next_day = max(current - 1, 0)  # the most recent day that has already ended
     while not should_stop():
         day_end = _day_start(next_day + 1, sim.epoch, sim.day_seconds)
@@ -292,10 +293,12 @@ def main(argv=None) -> int:
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
-    log("started", output_dir=str(args.output_dir), seed=sim.seed,
-        day_seconds=sim.day_seconds, epoch=sim.epoch.isoformat())
+    port = get_settings().lab_simulator.metrics_port
+    metrics.start_metrics_server(port)
+    log.info("started", output_dir=str(args.output_dir), seed=sim.seed, metrics_port=port,
+             day_seconds=sim.day_seconds, epoch=sim.epoch.isoformat())
     run_forever(sim, args.output_dir, should_stop=lambda: stopping)
-    log("stopped")
+    log.info("stopped")
     return 0
 
 

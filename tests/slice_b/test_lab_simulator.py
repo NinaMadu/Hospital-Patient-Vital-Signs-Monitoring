@@ -171,3 +171,39 @@ def test_run_forever_writes_each_day_after_it_ends(tmp_path):
     # Day 1 is caught up at start; days 2 and 3 are written as they end; day 4 is still running.
     written = sorted(p.name for p in tmp_path.glob("labs_day=*.csv"))
     assert written == ["labs_day=1.csv", "labs_day=2.csv", "labs_day=3.csv"]
+
+
+# ---- metrics (B10) ----------------------------------------------------------
+
+
+def test_write_day_updates_metrics(tmp_path):
+    from prometheus_client import REGISTRY
+
+    def value(name):
+        return REGISTRY.get_sample_value(name) or 0
+
+    files_before, rows_before = value("ward_lab_sim_files_written_total"), value("ward_lab_sim_rows_written_total")
+    sim = make_sim()
+    write_day(sim, tmp_path, 6)
+    rows = sim.rows_for_day(6)
+
+    assert value("ward_lab_sim_files_written_total") == files_before + 1
+    assert value("ward_lab_sim_rows_written_total") == rows_before + len(rows)
+    assert value("ward_lab_sim_last_written_sim_day") == 6
+    assert value("ward_lab_sim_last_file_timestamp_seconds") > 0
+    assert value("ward_lab_sim_missing_patients") == 15 - len({r["patient_id"] for r in rows})
+
+    write_day(sim, tmp_path, 6)            # skipped: already written -> no change
+    assert value("ward_lab_sim_files_written_total") == files_before + 1
+
+
+def test_skipped_day_still_reports_the_existing_file(tmp_path):
+    from prometheus_client import REGISTRY
+
+    sim = make_sim()
+    write_day(sim, tmp_path, 8)
+    write_day(sim, tmp_path, 9)
+    write_day(sim, tmp_path, 8)            # restart catching up an existing day
+    assert REGISTRY.get_sample_value("ward_lab_sim_last_written_sim_day") == 8
+    assert REGISTRY.get_sample_value("ward_lab_sim_last_file_timestamp_seconds") == \
+        marker_path(tmp_path, 8).stat().st_mtime

@@ -24,6 +24,7 @@ lab_simulator:
   abnormal_patients: [P007]           # always has high CRP and lactate (matches the vitals demo)
   random_seed: 7
   landing_dir: /data/landing/labs
+  metrics_port: 8002                  # /metrics while running as a service (Prometheus scrapes it)
 
 kafka:
   bootstrap_servers: localhost:9094   # host default; containers get kafka:9092 (KAFKA_BOOTSTRAP_INTERNAL)
@@ -51,6 +52,11 @@ paths:
   checkpoints: /data/checkpoints
   landing_labs: /data/landing/labs
   reports: /data/reports
+
+risk_consolidation:
+  lab_max_age_days: 1         # day N uses each patient's newest labs from day N or N-1; older = LAB_UNAVAILABLE
+  lake_settle_seconds: 60     # wait this long after day N ends before summarising it: Q2 commits
+                              # to the lake every 30 s, so day N's last readings land after the boundary
 
 health:
   no_vitals_alert_seconds: 30
