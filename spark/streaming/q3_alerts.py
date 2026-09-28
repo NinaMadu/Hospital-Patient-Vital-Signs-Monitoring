@@ -32,6 +32,7 @@ from pyspark.sql import functions as F
 
 from common.config import load_thresholds
 from common.risk_rules import RiskRules, default_rules
+from common.sim_clock import sim_day_column
 from spark.streaming import q1_windows as q1
 
 ALERTS_TOPIC = os.getenv("ALERTS_TOPIC", "patient-alerts")
@@ -117,7 +118,7 @@ def threshold_alerts(valid: DataFrame, rules: list[Rule] | None = None) -> DataF
         F.lit(None).cast("timestamp").alias("window_end"),
         F.lit(1).alias("abnormal_count"),
         F.lit(1).alias("reading_count"),
-        q1.sim_day(F.col("event_time")).alias("sim_day"),
+        sim_day_column(F.col("event_time")).alias("sim_day"),
         F.format_string("%s %.1f %s limit %.1f", "a.metric", "a.metric_value",
                         "a.direction", "a.threshold").alias("message"),
     )
@@ -175,7 +176,7 @@ def sustained_alerts(events: DataFrame, rules: list[Rule] | None = None,
         F.col("window.end").alias("window_end"),
         "a.abnormal_count",
         "reading_count",
-        q1.sim_day(F.col("last_event_time")).alias("sim_day"),
+        sim_day_column(F.col("last_event_time")).alias("sim_day"),
         F.format_string("%s %s limit %.1f in %d of %d readings (worst %.1f)",
                         "a.metric", "a.direction", "a.threshold", "a.abnormal_count",
                         "reading_count", "a.metric_value").alias("message"),
