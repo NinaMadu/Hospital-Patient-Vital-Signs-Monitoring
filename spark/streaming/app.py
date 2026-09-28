@@ -9,7 +9,8 @@ import os
 
 from pyspark.sql import DataFrame, SparkSession
 
-from spark.streaming import q1_windows
+from spark.streaming import q1_windows, q3_alerts
+from spark.streaming.listener import MetricsListener
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_INTERNAL", "kafka:9092")
 VITALS_TOPIC = os.getenv("VITALS_TOPIC", "patient-vitals")
@@ -32,10 +33,12 @@ def read_vitals(spark: SparkSession, starting_offsets: str = "latest") -> DataFr
 def main() -> None:
     spark = SparkSession.builder.appName("ward-speed-layer").getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
+    # JSON log + Pushgateway metrics for every micro-batch of every query (Member C, C7).
+    spark.streams.addListener(MetricsListener())
 
     q1_windows.start(read_vitals(spark), KAFKA_BOOTSTRAP)
     # q2_archive.start(read_vitals(spark, "earliest"))   # Member B (B4)
-    # q3_alerts.start(read_vitals(spark), KAFKA_BOOTSTRAP)  # Member C (C3)
+    q3_alerts.start(read_vitals(spark), KAFKA_BOOTSTRAP)  # Member C (C3)
 
     spark.streams.awaitAnyTermination()
 

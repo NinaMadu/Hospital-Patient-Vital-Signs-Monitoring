@@ -36,17 +36,31 @@ CREATE TABLE IF NOT EXISTS patient_current_status (
 );
 
 -- Alerts raised by Spark Q3 and stored by the alert consumer (Member C).
+-- alert_id is deterministic (see spark/streaming/q3_alerts.py), so a re-delivered alert
+-- hits the primary key and is skipped: each alert is stored exactly once.
+-- The alert consumer also adds any missing column at startup (api/alert_consumer.py).
 CREATE TABLE IF NOT EXISTS vital_alerts (
-    alert_id      TEXT PRIMARY KEY,
-    patient_id    TEXT        NOT NULL,
-    rule          TEXT        NOT NULL,
-    severity      TEXT        NOT NULL,
-    metric_value  DOUBLE PRECISION,
-    event_time    TIMESTAMPTZ NOT NULL,
-    sim_day       INTEGER     NOT NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    alert_id        TEXT PRIMARY KEY,
+    patient_id      TEXT        NOT NULL,
+    bed_id          TEXT,
+    alert_type      TEXT,                  -- THRESHOLD (one reading) / SUSTAINED (window)
+    rule            TEXT        NOT NULL,  -- e.g. SPO2_LOW, SUSTAINED_HEART_RATE_HIGH
+    severity        TEXT        NOT NULL,  -- WARNING / CRITICAL
+    metric          TEXT,                  -- spo2, heart_rate, ...
+    metric_value    DOUBLE PRECISION,      -- the reading, or the worst value in the window
+    threshold       DOUBLE PRECISION,
+    event_time      TIMESTAMPTZ NOT NULL,
+    window_start    TIMESTAMPTZ,
+    window_end      TIMESTAMPTZ,
+    abnormal_count  INTEGER,
+    reading_count   INTEGER,
+    sim_day         INTEGER     NOT NULL,
+    message         TEXT,
+    detected_at     TIMESTAMPTZ,           -- when Spark raised it
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()   -- when the consumer stored it
 );
 CREATE INDEX IF NOT EXISTS ix_vital_alerts_patient_time ON vital_alerts (patient_id, event_time DESC);
+CREATE INDEX IF NOT EXISTS ix_vital_alerts_time ON vital_alerts (event_time DESC);
 
 -- Daily lab feed, loaded by the daily_lab_consolidation DAG (Member B).
 CREATE TABLE IF NOT EXISTS lab_results (

@@ -1,11 +1,14 @@
 apiVersion: 1
+# Fixed uids, so the provisioned dashboard (observability/grafana/dashboards) can refer to them.
 datasources:
   - name: Prometheus
+    uid: prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
   - name: WardPostgres
+    uid: ward-postgres
     type: grafana-postgresql-datasource
     access: proxy
     url: postgres:5432
