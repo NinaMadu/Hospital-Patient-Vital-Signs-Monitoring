@@ -6,7 +6,8 @@ vitals:
   heart_rate_avg:      {below: 50, above: 120,   points: 1}
   temperature_max:     {above: 38.0,             points: 1}
   systolic_bp:         {below: 90, above: 160,   points: 1}
-  trend:               {consecutive_windows: 3,  points: 1}
+  trend:               {consecutive_windows: 3,  points: 1,
+                        min_heart_rate_rise: 5,  min_spo2_fall: 1.0}   # Q1 (A6): ignore noise-sized moves
 
 labs:
   out_of_range_points: 1
@@ -17,3 +18,12 @@ categories:                       # total score -> category
   NORMAL:     {min: 0, max: 1}
   WATCH:      {min: 2, max: 3}
   CONCERNING: {min: 4}
+
+# Q3 speed-layer alert rules (Member C). The vital limits are the ones above.
+#   THRESHOLD alert (WARNING):  one reading outside a limit.
+#   SUSTAINED alert (CRITICAL): the same limit broken in >= sustained_min_readings readings
+#                               of one patient inside one tumbling sustained_window.
+alerts:
+  sustained_window: "1 minute"
+  sustained_min_readings: 3
+  watermark: "30 seconds"         # how late a reading may arrive and still count

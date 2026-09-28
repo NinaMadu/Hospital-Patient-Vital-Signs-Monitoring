@@ -5,14 +5,14 @@ Shared by all members. Each owner adds one start() call below.
     docker compose up -d spark-streaming           # runs this file with spark-submit
     Spark UI (Structured Streaming tab): http://localhost:4040
 """
-import os
-
 from pyspark.sql import DataFrame, SparkSession
 
-from spark.streaming import q1_windows, q2_archive
+from common.config import get_settings
+from spark.streaming import q1_windows, q2_archive, q3_alerts
+from spark.streaming.listener import MetricsListener
 
-KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_INTERNAL", "kafka:9092")
-VITALS_TOPIC = os.getenv("VITALS_TOPIC", "patient-vitals")
+KAFKA_BOOTSTRAP = get_settings().kafka.bootstrap_servers
+VITALS_TOPIC = get_settings().kafka.topics.vitals
 
 
 def read_vitals(spark: SparkSession, starting_offsets: str = "latest") -> DataFrame:
@@ -32,11 +32,13 @@ def read_vitals(spark: SparkSession, starting_offsets: str = "latest") -> DataFr
 def main() -> None:
     spark = SparkSession.builder.appName("ward-speed-layer").getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
+    # JSON log + Pushgateway metrics for every micro-batch of every query (Member C, C7).
+    spark.streams.addListener(MetricsListener())
 
     q1_windows.start(read_vitals(spark), KAFKA_BOOTSTRAP)
     # Q2 starts from the earliest retained offset so the lake holds all history (first start only).
     q2_archive.start(read_vitals(spark, "earliest"))   # Member B (B4)
-    # q3_alerts.start(read_vitals(spark), KAFKA_BOOTSTRAP)  # Member C (C3)
+    q3_alerts.start(read_vitals(spark), KAFKA_BOOTSTRAP)  # Member C (C3)
 
     spark.streams.awaitAnyTermination()
 

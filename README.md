@@ -80,13 +80,32 @@ docker compose ps -a
 | Kafka UI | http://localhost:8085 | — |
 | Spark master UI | http://localhost:8090 | — |
 | Spark worker UI | http://localhost:8081 | — |
-| API | http://localhost:8000/health, http://localhost:8000/docs | — |
+| API | http://localhost:8000/docs (endpoints below) | — |
+| Alert consumer metrics | http://localhost:8001/metrics | — |
 | PostgreSQL | `localhost:5432`, db `ward` | `ward` / `ward_dev_pw` |
 | Kafka (from host) | `localhost:9094` | — |
-| Prometheus | http://localhost:9090 | monitoring profile |
-| Grafana | http://localhost:3000 | `admin` / `admin`, monitoring profile |
+| Prometheus (alerts: /alerts) | http://localhost:9090 | monitoring profile |
+| Pushgateway | http://localhost:9091 | monitoring profile |
+| Grafana (dashboard "Ward Vitals Pipeline") | http://localhost:3000 | `admin` / `admin`, monitoring profile |
 
 Inside the Docker network use `kafka:9092`, `postgres:5432` and `spark://spark-master:7077`.
+
+### API endpoints
+
+| Endpoint | Returns |
+|---|---|
+| `GET /health` | `200` if Postgres answers, `503` if not |
+| `GET /api/patients?sort=risk&category=WATCH` | Speed view: each patient's current 2-min window and vital risk |
+| `GET /api/patients/{id}` | Merged view: vital risk (speed) + lab risk (batch) → combined category |
+| `GET /api/alerts?patient_id=P007&severity=CRITICAL` | Alerts from Spark Q3 (newest first) |
+| `GET /api/metrics` | JSON summary: data freshness, risk categories, alert counts, API traffic |
+| `GET /metrics` | Prometheus format |
+
+Demo alert for P007 (details in [docs/PART_C_README.md](docs/PART_C_README.md)):
+```bash
+docker compose stop vital-producer
+docker compose run --rm vital-producer python -m simulators.vital_producer.main --scenario spike --patient P007 --scenario-start 10
+```
 
 ## Verify the environment
 
@@ -111,6 +130,12 @@ py -3.12 -m venv .venv                 # Windows  (macOS/Linux: python3.12 -m ve
 .venv\Scripts\activate                 # Windows  (macOS/Linux: source .venv/bin/activate)
 pip install -r requirements-dev.txt
 pytest
+```
+
+Or run every test inside the Spark image (no local Python or Java needed):
+
+```bash
+docker compose run --rm --no-deps -T --entrypoint sh spark-worker scripts/test_in_docker.sh
 ```
 
 Local PySpark is for unit tests on small in-memory DataFrames. On Windows, writing files from local Spark needs Hadoop `winutils`, so run file-writing jobs in the containers instead.

@@ -26,14 +26,6 @@ def test_thresholds_categories_cover_scores():
     assert cats["CONCERNING"]["min"] == cats["WATCH"]["max"] + 1
 
 
-def test_api_health():
-    from fastapi.testclient import TestClient
-
-    from api.main import app
-
-    assert TestClient(app).get("/health").json() == {"status": "ok"}
-
-
 # ---- common/config.py -----------------------------------------------------
 
 

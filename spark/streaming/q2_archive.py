@@ -21,6 +21,7 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 from common.config import get_settings
+from common.sim_clock import sim_day_column
 from spark.streaming import q1_windows
 
 ARCHIVE_TRIGGER = "30 seconds"  # longer than Q1's 10 s: fewer, larger Parquet files
@@ -46,15 +47,14 @@ def archive_records(raw: DataFrame) -> DataFrame:
     sim_day comes from event time; an event with no usable timestamp (malformed JSON)
     falls back to the time it was archived, so it still lands in a partition.
     """
-    # TODO(A1): q1_windows.sim_day moves to common/sim_clock.py.
     ingested_at = F.current_timestamp()
     return (
         q1_windows.parse(raw)
         .withColumnRenamed("partition", "kafka_partition")
         .withColumnRenamed("offset", "kafka_offset")
         .withColumn("ingested_at", ingested_at)
-        .withColumn("sim_day", F.coalesce(q1_windows.sim_day(F.col("event_time")),
-                                          q1_windows.sim_day(F.col("ingested_at"))))
+        .withColumn("sim_day", F.coalesce(sim_day_column(F.col("event_time")),
+                                          sim_day_column(F.col("ingested_at"))))
         .select(*ARCHIVE_COLUMNS)
     )
 

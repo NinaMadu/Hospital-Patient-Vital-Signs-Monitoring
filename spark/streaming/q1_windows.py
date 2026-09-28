@@ -6,27 +6,32 @@ Two streaming queries share one parsed stream:
   q1_dlq      invalid events  -> Kafka topic vitals-dlq (with a `reason`)
   q1_windows  valid events    -> watermark -> drop duplicate event_ids
                               -> 2-minute windows sliding every 30 s, per patient
-                              -> foreachBatch upsert into patient_current_status
+                              -> foreachBatch: every window -> patient_vital_windows,
+                                 latest window + trend + risk -> patient_current_status
+
+Trend (A6): a micro-batch only emits the windows it touched, so the recent windows are kept
+in patient_vital_windows and compared across micro-batches. Risk points come from the shared
+rules in common/risk_rules.py, the same ones the batch layer and the API use.
 """
 from __future__ import annotations
 
-import os
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
-import yaml
 from pyspark.sql import DataFrame, Window
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-# TODO(A1/B1): read these through common.config.get_settings() once B1 is merged.
-# Until then they mirror config/app.yaml (streaming, kafka, paths) and .env.
-WINDOW = "2 minutes"
-SLIDE = "30 seconds"
-WATERMARK = "1 minute"
-TRIGGER = "10 seconds"
-DLQ_TOPIC = os.getenv("DLQ_TOPIC", "vitals-dlq")
-CHECKPOINTS = "/data/checkpoints"
+from common.config import get_settings, load_thresholds
+from common.risk_rules import default_rules
+from common.sim_clock import sim_day_column
+
+SETTINGS = get_settings()
+WINDOW = SETTINGS.streaming.window_duration
+SLIDE = SETTINGS.streaming.slide_duration
+WATERMARK = SETTINGS.streaming.watermark
+TRIGGER = SETTINGS.streaming.trigger_interval
+DLQ_TOPIC = SETTINGS.kafka.topics.dlq
+CHECKPOINTS = SETTINGS.paths.checkpoints
 
 # Physically plausible limits. A value outside them is a sensor or transmission error,
 # not a sick patient, so the event is rejected. Clinical thresholds are a separate thing
@@ -48,9 +53,21 @@ EVENT_SCHEMA = T.StructType(
     + [T.StructField("timestamp", T.StringType()), T.StructField(CORRUPT, T.StringType())]
 )
 
-THRESHOLDS = yaml.safe_load(
-    (Path(__file__).resolve().parents[2] / "config" / "thresholds.yaml").read_text()
-)["vitals"]
+THRESHOLDS = load_thresholds().vitals
+RULES = default_rules()
+
+
+def _seconds(duration: str) -> int:
+    """Spark interval string from config/app.yaml -> seconds: '30 seconds' -> 30, '2 minutes' -> 120."""
+    n, unit = duration.split()
+    return int(n) * {"second": 1, "minute": 60, "hour": 3600}[unit.rstrip("s")]
+
+
+SLIDE_DELTA = timedelta(seconds=_seconds(SLIDE))
+TREND_WINDOWS = int(THRESHOLDS["trend"]["consecutive_windows"])
+MIN_HR_RISE = float(THRESHOLDS["trend"]["min_heart_rate_rise"])
+MIN_SPO2_FALL = float(THRESHOLDS["trend"]["min_spo2_fall"])
+HISTORY_KEEP = timedelta(minutes=10)   # older windows are pruned from patient_vital_windows
 
 
 # ---------------------------------------------------------------- parsing --
@@ -139,13 +156,6 @@ def window_aggregates(events: DataFrame) -> DataFrame:
     )
 
 
-def sim_day(ts: F.Column) -> F.Column:
-    """floor((ts - SIM_EPOCH) / SIM_DAY_SECONDS). TODO(A1): move to common/sim_clock.py."""
-    epoch = datetime.fromisoformat(os.getenv("SIM_EPOCH", "2026-09-28T00:00:00+00:00")).timestamp()
-    day_seconds = int(os.getenv("SIM_DAY_SECONDS", "300"))
-    return F.floor((ts.cast("double") - F.lit(epoch)) / day_seconds).cast("int")
-
-
 def current_status(windows: DataFrame) -> DataFrame:
     """One row per patient: the window that ends with the patient's latest reading.
 
@@ -156,16 +166,90 @@ def current_status(windows: DataFrame) -> DataFrame:
         F.col("last_event_time").desc(), F.col("window_start").asc())
     return (windows.withColumn("_rank", F.row_number().over(pick))
             .filter("_rank = 1").drop("_rank")
-            .withColumn("sim_day", sim_day(F.col("last_event_time"))))
+            .withColumn("sim_day", sim_day_column(F.col("last_event_time"))))
+
+
+# ------------------------------------------------------------ trend, risk --
+
+def trend_label(values: list[float | None], min_change: float) -> str | None:
+    """RISING / FALLING / STABLE for window averages, oldest first; None if history is short.
+
+    RISING needs every step up and a total rise of at least min_change (FALLING mirrors it),
+    so ordinary sensor noise between overlapping windows stays STABLE.
+    """
+    if len(values) < TREND_WINDOWS or any(v is None for v in values):
+        return None
+    steps = [b - a for a, b in zip(values, values[1:])]
+    if all(d > 0 for d in steps) and values[-1] - values[0] >= min_change:
+        return "RISING"
+    if all(d < 0 for d in steps) and values[0] - values[-1] >= min_change:
+        return "FALLING"
+    return "STABLE"
+
+
+def trends(history: dict, patient_id: str, window_start: datetime) -> tuple[str | None, str | None]:
+    """(hr_trend, spo2_trend) over the TREND_WINDOWS consecutive windows ending at window_start.
+
+    history maps (patient_id, window_start) -> (avg_heart_rate, avg_spo2). Consecutive means
+    exactly one slide apart; a gap (the producer stopped) gives None, not a trend.
+    """
+    keys = [(patient_id, window_start - SLIDE_DELTA * k) for k in reversed(range(TREND_WINDOWS))]
+    if any(k not in history for k in keys):
+        return None, None
+    hr = [history[k][0] for k in keys]
+    spo2 = [history[k][1] for k in keys]
+    return trend_label(hr, MIN_HR_RISE), trend_label(spo2, MIN_SPO2_FALL)
+
+
+def enrich(row: dict, history: dict) -> dict:
+    """Add hr_trend, spo2_trend, vital_risk_score and vital_risk_category to a status row."""
+    hr_trend, spo2_trend = trends(history, row["patient_id"], row["window_start"])
+    score = RULES.vital_points(
+        avg_heart_rate=row["avg_heart_rate"],
+        min_spo2=row["min_spo2"],
+        max_temperature=row["max_temperature"],
+        max_systolic_bp=row["max_systolic_bp"],
+        min_systolic_bp=row["min_systolic_bp"],
+        trend=hr_trend == "RISING" or spo2_trend == "FALLING",
+    )
+    return {**row, "hr_trend": hr_trend, "spo2_trend": spo2_trend,
+            "vital_risk_score": score.points, "vital_risk_category": RULES.category(score.points)}
 
 
 # ----------------------------------------------------------------- output --
 
-STATUS_COLUMNS = [
+WINDOW_COLUMNS = ["patient_id", "window_start", "window_end", "avg_heart_rate", "avg_spo2",
+                  "reading_count"]
+
+WINDOWS_DDL = """
+CREATE TABLE IF NOT EXISTS patient_vital_windows (
+    patient_id      TEXT        NOT NULL,
+    window_start    TIMESTAMPTZ NOT NULL,
+    window_end      TIMESTAMPTZ NOT NULL,
+    avg_heart_rate  DOUBLE PRECISION,
+    avg_spo2        DOUBLE PRECISION,
+    reading_count   INTEGER,
+    PRIMARY KEY (patient_id, window_start)
+)
+"""
+
+WINDOWS_UPSERT_SQL = f"""
+INSERT INTO patient_vital_windows ({", ".join(WINDOW_COLUMNS)}) VALUES %s
+ON CONFLICT (patient_id, window_start) DO UPDATE SET
+    {", ".join(f"{c} = EXCLUDED.{c}" for c in WINDOW_COLUMNS[2:])}
+"""
+
+HISTORY_SQL = """
+SELECT patient_id, window_start, avg_heart_rate, avg_spo2 FROM patient_vital_windows
+WHERE patient_id = ANY(%s) AND window_start >= %s
+"""
+
+BASE_COLUMNS = [
     "patient_id", "window_start", "window_end", "last_event_time", "sim_day",
     *[f"{agg}_{v}" for v in VITALS for agg in ("avg", "min", "max")],
     "reading_count", "abnormal_count",
 ]
+STATUS_COLUMNS = [*BASE_COLUMNS, "hr_trend", "spo2_trend", "vital_risk_score", "vital_risk_category"]
 
 UPSERT_SQL = f"""
 INSERT INTO patient_current_status ({", ".join(STATUS_COLUMNS)}) VALUES %s
@@ -179,41 +263,61 @@ WHERE patient_current_status.last_event_time <= EXCLUDED.last_event_time
 def pg_connect():
     import psycopg2
 
-    return psycopg2.connect(
-        host=os.getenv("POSTGRES_HOST", "postgres"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        dbname=os.environ["POSTGRES_DB"],
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-    )
+    return psycopg2.connect(SETTINGS.postgres.dsn)
+
+
+def _utc(row) -> dict:
+    """Spark Row -> dict. Spark returns naive UTC timestamps; Postgres wants tz-aware ones."""
+    return {k: v.replace(tzinfo=timezone.utc) if isinstance(v, datetime) else v
+            for k, v in row.asDict().items()}
+
+
+def ensure_tables() -> None:
+    """Create patient_vital_windows on databases initialised before A6 added it."""
+    with pg_connect() as conn, conn.cursor() as cur:
+        cur.execute(WINDOWS_DDL)
+    conn.close()
 
 
 def upsert_batch(batch_df: DataFrame, batch_id: int) -> None:
-    """foreachBatch sink: runs on the driver once per micro-batch.
+    """foreachBatch sink: runs on the driver once per micro-batch, in one transaction.
+
+    1. Upsert every window of the batch into patient_vital_windows.
+    2. Read back the patients' recent windows and add trend and risk to the latest one.
+    3. Upsert the latest window per patient into patient_current_status.
+    4. Prune old windows.
 
     Idempotent: if Spark re-runs a batch after a crash, the same rows are upserted again
-    and the table ends up the same. The WHERE clause stops a late batch from replacing a
+    and both tables end up the same. The WHERE clause stops a late batch from replacing a
     newer window with an older one.
     """
-    rows = current_status(batch_df).select(*STATUS_COLUMNS).collect()  # <= 15 rows
-    if not rows:
+    batch_df.persist()   # two actions below; don't recompute the batch twice
+    try:
+        windows = [_utc(r) for r in batch_df.select(*WINDOW_COLUMNS).collect()]
+        current = [_utc(r) for r in current_status(batch_df).select(*BASE_COLUMNS).collect()]
+    finally:
+        batch_df.unpersist()
+    if not current:
         return
-    utc = [c for c in STATUS_COLUMNS if c.endswith(("_start", "_end", "_time"))]
-    values = [
-        tuple(r[c].replace(tzinfo=timezone.utc) if c in utc else r[c] for c in STATUS_COLUMNS)
-        for r in rows
-    ]
     from psycopg2.extras import execute_values
 
+    earliest = min(r["window_start"] for r in current) - SLIDE_DELTA * (TREND_WINDOWS - 1)
     with pg_connect() as conn, conn.cursor() as cur:
-        execute_values(cur, UPSERT_SQL, values)
+        execute_values(cur, WINDOWS_UPSERT_SQL, [tuple(w[c] for c in WINDOW_COLUMNS) for w in windows])
+        cur.execute(HISTORY_SQL, ([r["patient_id"] for r in current], earliest))
+        history = {(pid, start): (hr, spo2) for pid, start, hr, spo2 in cur.fetchall()}
+        rows = [enrich(r, history) for r in current]
+        execute_values(cur, UPSERT_SQL, [tuple(r[c] for c in STATUS_COLUMNS) for r in rows])
+        cur.execute("DELETE FROM patient_vital_windows WHERE window_end < %s",
+                    (max(w["window_end"] for w in windows) - HISTORY_KEEP,))
     conn.close()
     print(f'{{"component": "q1_windows", "event": "upsert", "batch_id": {batch_id}, '
-          f'"rows": {len(values)}}}', flush=True)
+          f'"windows": {len(windows)}, "rows": {len(rows)}}}', flush=True)
 
 
 def start(raw: DataFrame, kafka_bootstrap: str) -> list:
     """Start Q1's two streaming queries on the raw Kafka stream."""
+    ensure_tables()
     parsed = parse(raw)
 
     dlq = (dlq_records(parsed).writeStream
