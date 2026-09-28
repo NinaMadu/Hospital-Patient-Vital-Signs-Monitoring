@@ -35,6 +35,18 @@ CREATE TABLE IF NOT EXISTS patient_current_status (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Recent sliding windows per patient, kept so Q1 can compare consecutive windows (trend, A6).
+-- Q1 prunes rows older than a few minutes; Q1 also creates this table if it is missing.
+CREATE TABLE IF NOT EXISTS patient_vital_windows (
+    patient_id      TEXT        NOT NULL,
+    window_start    TIMESTAMPTZ NOT NULL,
+    window_end      TIMESTAMPTZ NOT NULL,
+    avg_heart_rate  DOUBLE PRECISION,
+    avg_spo2        DOUBLE PRECISION,
+    reading_count   INTEGER,
+    PRIMARY KEY (patient_id, window_start)
+);
+
 -- Alerts raised by Spark Q3 and stored by the alert consumer (Member C).
 -- alert_id is deterministic (see spark/streaming/q3_alerts.py), so a re-delivered alert
 -- hits the primary key and is skipped: each alert is stored exactly once.

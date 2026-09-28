@@ -6,7 +6,8 @@ vitals:
   heart_rate_avg:      {below: 50, above: 120,   points: 1}
   temperature_max:     {above: 38.0,             points: 1}
   systolic_bp:         {below: 90, above: 160,   points: 1}
-  trend:               {consecutive_windows: 3,  points: 1}
+  trend:               {consecutive_windows: 3,  points: 1,
+                        min_heart_rate_rise: 5,  min_spo2_fall: 1.0}   # Q1 (A6): ignore noise-sized moves
 
 labs:
   out_of_range_points: 1
