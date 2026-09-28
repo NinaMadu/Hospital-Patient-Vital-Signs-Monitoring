@@ -67,3 +67,47 @@ def test_stream_paces_each_patient_2_to_5_seconds():
     for times in seen.values():
         gaps = [b - a for a, b in zip(times, times[1:])]
         assert all(2.0 <= g <= 5.0 for g in gaps)
+
+
+# ---- delivery callback: metrics and logs (A7) ---------------------------------------
+
+class FakeMsg:
+    def __init__(self, key, partition):
+        self._key, self._partition = key, partition
+
+    def key(self):
+        return self._key.encode()
+
+    def partition(self):
+        return self._partition
+
+
+def sample(name, **labels):
+    from prometheus_client import REGISTRY
+
+    return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
+def test_delivery_counts_sent_per_partition_and_last_event_time():
+    from simulators.vital_producer.main import DeliveryStats
+
+    stats = DeliveryStats()
+    before = sample("ward_producer_events_sent_total", partition="2")
+    stats.callback(None, FakeMsg("P007", 2))
+    stats.callback(None, FakeMsg("P007", 2))
+    assert stats.sent == 2 and stats.partition_of == {"P007": 2}
+    assert sample("ward_producer_events_sent_total", partition="2") == before + 2
+    assert sample("ward_producer_last_event_timestamp_seconds") > 1.7e9
+
+
+def test_delivery_error_is_counted_and_logged_as_json(capsys):
+    from simulators.vital_producer.main import DeliveryStats
+
+    stats = DeliveryStats()
+    before = sample("ward_producer_send_errors_total")
+    stats.callback("KafkaError: timed out", FakeMsg("P003", 0))
+    assert stats.errors == 1 and stats.sent == 0
+    assert sample("ward_producer_send_errors_total") == before + 1
+    [line] = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
+    assert (line["component"], line["event"], line["severity"]) == ("vital-producer", "send_failed", "ERROR")
+    assert line["patient_id"] == "P003"
