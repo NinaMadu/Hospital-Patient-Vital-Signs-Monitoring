@@ -85,6 +85,11 @@ CREATE INDEX IF NOT EXISTS ix_vital_alerts_time ON vital_alerts (event_time DESC
 CONSUMED = metrics.counter("alerts_consumed", "Alert messages read from Kafka")
 STORED = metrics.counter("alerts_stored", "Alerts inserted into vital_alerts",
                          ["severity", "alert_type"])
+# Create the known label sets up front so their series start at 0. A labelled series that
+# first appears already at 3 has no earlier sample, so increase() stays 0 and the
+# PatientCriticalAlert rule would miss the first critical alerts after a restart.
+for _severity, _alert_type in (("WARNING", "THRESHOLD"), ("CRITICAL", "SUSTAINED")):
+    STORED.labels(severity=_severity, alert_type=_alert_type)
 DUPLICATES = metrics.counter("alerts_duplicate", "Alerts skipped because already stored")
 INVALID = metrics.counter("alert_consumer_invalid_messages", "Messages that are not valid alerts")
 DB_ERRORS = metrics.counter("alert_consumer_db_errors", "Failed attempts to store a batch")

@@ -45,7 +45,7 @@ These scenarios are seeded, so the same alerts fire every time:
 
 ```powershell
 docker compose stop vital-producer
-docker compose run --rm vital-producer python -m simulators.vital_producer.main --scenario spike --patient P007 --scenario-start 10
+docker compose run --rm --use-aliases vital-producer python -m simulators.vital_producer.main --scenario spike --patient P007 --scenario-start 10
 # the no-data alert instead: --scenario outage --scenario-start 10 --scenario-duration 90
 docker compose start vital-producer    # afterwards
 ```
