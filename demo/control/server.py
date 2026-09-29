@@ -26,7 +26,7 @@ from api.db import Database
 from common import metrics
 from common.config import get_settings
 from common.logger import get_logger
-from demo.control import batch
+from demo.control import batch, pipeline
 from demo.control.producer import ScenarioProducer
 
 log = get_logger("demo-control")
@@ -35,6 +35,9 @@ HERE = Path(__file__).parent
 API_URL = os.getenv("DEMO_API_URL", "http://api:8000").rstrip("/")
 LANDING = os.getenv("DEMO_LANDING_DIR", S.lab_simulator.landing_dir)
 REPORTS = os.getenv("DEMO_REPORTS_DIR", S.paths.reports)
+LAKE = os.getenv("DEMO_LAKE_DIR", S.paths.lake_vitals)
+PUSHGATEWAY_URL = os.getenv("DEMO_PUSHGATEWAY_URL", "http://pushgateway:9091")
+PROMETHEUS_URL = os.getenv("DEMO_PROMETHEUS_URL", "http://prometheus:9090")
 PATIENT = re.compile(r"^P\d{3}$")
 
 # Links shown on the page, as opened from the presenter's browser.
@@ -55,6 +58,8 @@ airflow = batch.AirflowClient(os.getenv("DEMO_AIRFLOW_URL", "http://airflow:8080
                               os.getenv("AIRFLOW_ADMIN_USER", "admin"),
                               os.getenv("AIRFLOW_ADMIN_PASSWORD", "admin"),
                               timeout=2.5)   # a starting Airflow must not stall the page
+offsets = pipeline.KafkaOffsets(S.kafka.bootstrap_servers,
+                                [S.kafka.topics.vitals, S.kafka.topics.dlq, S.kafka.topics.alerts])
 actions: list[dict] = []          # the presenter's actions, shown as a timeline
 
 
@@ -207,6 +212,25 @@ def batch_view(sim_day: int | None = None) -> dict:
         "dag_runs": _safe(airflow.recent_runs, None),
         "reports": _safe(lambda: batch.list_reports(REPORTS), []),
     }
+
+
+sources = pipeline.LiveSources({
+    "api": lambda: requests.get(API_URL + "/health", timeout=2).json().get("status") == "ok",
+    "kafka": offsets.read,
+    "spark": lambda: pipeline.spark_metrics(PUSHGATEWAY_URL),
+    "db": lambda: pipeline.db_stats(db),
+    "lake": lambda: pipeline.lake_stats(LAKE, _sim_clock()["sim_day"]),
+    "landing": lambda: pipeline.landing_stats(LANDING),
+    "airflow": lambda: (airflow.recent_runs(limit=1) or [None])[0],
+    "prometheus": lambda: pipeline.firing_alerts(PROMETHEUS_URL),
+}, background=frozenset({"airflow", "prometheus"}))   # ~1 s REST calls; change every few minutes
+
+
+@app.get("/demo/api/pipeline")
+def pipeline_view() -> dict:
+    """One snapshot of every stage for the Live pipeline tab (see pipeline.LiveSources)."""
+    return {"now": datetime.now(timezone.utc), "clock": _sim_clock(), "feed": feed.status(),
+            **sources.snapshot()}
 
 
 # ---------------------------------------------------------------- controls --

@@ -294,3 +294,82 @@ def test_milestones_record_time_to_concerning():
         server.feed = server_feed
         del server.queries.first_alert_since
         feed.close()
+
+
+# ------------------------------------------------------------ live pipeline --
+
+def test_spark_metrics_parses_the_listener_gauges(monkeypatch):
+    from demo.control import pipeline
+
+    text = "\n".join([
+        "# HELP ward_streaming_batch_id last completed batch",
+        'ward_streaming_batch_id{instance="",job="spark_streaming",query="q1_windows"} 5720',
+        'ward_streaming_input_rows{instance="",job="spark_streaming",query="q1_windows"} 41',
+        'ward_streaming_batch_duration_ms{instance="",job="spark_streaming",query="q2_archive"} 2366',
+        'push_time_seconds{instance="",job="spark_streaming"} 1.79e+09',
+    ])
+
+    class Resp:
+        def raise_for_status(self):
+            pass
+
+    Resp.text = text
+    monkeypatch.setattr(pipeline.requests, "get", lambda url, timeout: Resp())
+    m = pipeline.spark_metrics("http://pushgateway:9091")
+    assert m == {"q1_windows": {"batch_id": 5720.0, "input_rows": 41.0},
+                 "q2_archive": {"batch_duration_ms": 2366.0}}
+
+
+def test_lake_and_landing_stats(tmp_path):
+    from demo.control import pipeline
+
+    day = tmp_path / "lake" / "sim_day=7"
+    day.mkdir(parents=True)
+    (day / "part-0.parquet").write_bytes(b"x" * 100)
+    (day / "part-1.parquet").write_bytes(b"x" * 50)
+    (tmp_path / "lake" / "sim_day=6").mkdir()
+    assert pipeline.lake_stats(tmp_path / "lake", 7) == {"sim_day": 7, "files": 2, "bytes": 150, "days": 2}
+    assert pipeline.lake_stats(tmp_path / "missing", 7) is None
+
+    landing = tmp_path / "landing"
+    write_day(build_simulator(), landing, 3)
+    write_day(build_simulator(), landing, 4)
+    info = pipeline.landing_stats(landing)
+    assert info["latest_day"] == 4 and info["files"] == 2 and info["marker"] is True
+    assert info["patients"] > 0 and info["corrupted"] is False
+    batch.write_corrupt_file(landing, 4, build_simulator().rows_for_day(4))
+    assert pipeline.landing_stats(landing)["corrupted"] is True
+
+
+def test_live_sources_never_wait_for_a_slow_or_background_source():
+    from demo.control import pipeline
+
+    def slow():
+        time.sleep(1.5)
+        return "late"
+
+    def broken():
+        raise RuntimeError("down")
+
+    src = pipeline.LiveSources({"fast": lambda: 1, "slow": slow, "bg": slow, "broken": broken},
+                               wait_s=0.3, background=frozenset({"bg"}))
+    t = time.monotonic()
+    first = src.snapshot()
+    assert time.monotonic() - t < 1.0            # the answer did not wait for "slow"
+    assert first["fast"] == 1 and first["slow"] is None and first["broken"] is None
+    assert wait_for(lambda: src.snapshot()["slow"] == "late", timeout=4)
+    assert src.snapshot()["bg"] == "late"         # background sources catch up on their own
+
+
+def test_pipeline_endpoint_returns_every_stage(client, monkeypatch):
+    from demo.control import pipeline, server
+
+    fake = pipeline.LiveSources({"kafka": lambda: {"patient-vitals": {"partitions": {0: 5}, "total": 5}},
+                                 "db": lambda: None})
+    monkeypatch.setattr(server, "sources", fake)
+    body = client.get("/demo/api/pipeline").json()
+    assert {"now", "clock", "feed", "kafka", "db"} <= set(body)
+    assert body["kafka"]["patient-vitals"]["total"] == 5
+    assert body["feed"]["supported_scenarios"]
+    assert "Live pipeline" in client.get("/").text
+    assert client.get("/static/pipeline.js").status_code == 200

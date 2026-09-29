@@ -67,17 +67,56 @@ the daily run.
 | Area | What it shows | Data from |
 |---|---|---|
 | Top bar | Simulated day and progress through it; health of Kafka, API, Postgres, Airflow | clock, `/health`, producer acks |
-| **Story / Technical** (top right, or press **T**) | Story: plain-language captions for a non-technical audience. Technical: endpoints, tables, Spark queries, raw Kafka messages with partition numbers | — |
+| **Story / Technical** (top right, or press **T**) | Story: labels only, plain alert text. Technical adds scenario parameters, alert rule names, vital reasons in the risk table and the raw Kafka feed with partition numbers | — |
 | 1 · Live scenarios | Buttons that change one patient's vitals (pick the patient and duration first) and a live timer of the pipeline's reaction | the feed |
 | 2 · Data quality | Switch on 5 % broken readings; they go to the dead-letter queue, never to the ward board. You can also pause and resume the whole feed | the feed |
 | 3 · Daily batch | Run the daily DAG for any day; the failure drill for a bad lab file | Airflow REST API |
 | Ward board | 15 patient tiles coloured NORMAL / WATCH / CONCERNING, with trend arrows ↑↓ and alert counts. **Click a tile** for the patient's full picture: live vitals + labs = combined score, lab table, alerts | `GET /api/patients` |
-| Daily risk | The last 3 DAG runs task by task; the day's risk table with each patient's category *from vitals only* next to it *with labs*. Rows are highlighted where the labs changed the category. Links to the HTML/CSV report | `daily_patient_risk`, Airflow |
+| Daily risk | The latest DAG run task by task; the day's risk table with each patient's category *from vitals only* next to it *with labs*. Rows are highlighted where the labs changed the category. Links to the HTML/CSV report | `daily_patient_risk`, Airflow |
 | Alerts | Live alerts, newest first, flashing when new | `GET /api/alerts` |
-| What we did | A timeline of your button presses, so viewers can follow along | — |
+| Timeline | Your button presses, so viewers can follow along | — |
 
 URL options for a bookmarked start view: `http://localhost:8050/?mode=tech` and
 `http://localhost:8050/?patient=P007` (opens that patient).
+
+## Live pipeline tab
+
+The second tab in the top bar (or press **P**; bookmark `?view=pipeline`) shows the whole
+Lambda architecture as one full-screen diagram: the speed layer, the batch layer and the
+serving layer, with a live number on every stage. Made for the video: light theme, large
+type, and it fits a 1920×1080 recording without scrolling.
+
+**Every moving dot is a real event since the last poll (every 2 s)**, not a canned animation:
+
+| Dot | Travels | Driven by |
+|---|---|---|
+| Blue / cyan / pink | monitors → the Kafka partition it was written to | each reading Kafka acknowledged; colour = partition |
+| Yellow, with the patient ID | the same path | readings of the scenario patient (always the same partition: key = patient_id) |
+| Red | monitors → Kafka, then Q1 → dead letters | broken readings, and new records on `vitals-dlq` |
+| Burst into Spark | Kafka → Spark, then Q1 → `patient_current_status` | a new Q1 micro-batch (batch id from the Pushgateway) |
+| Orange, with the patient ID | Q3 → `patient-alerts` → alert store → `vital_alerts` | new offsets on `patient-alerts`, then the rows the consumer stored |
+| Violet square | Q2 → lake; lab → landing → Airflow → Spark batch → daily tables | a Q2 archive batch; a new lab file; DAG tasks starting and finishing |
+
+**Zoom:** click a layer (its background or its coloured label) to zoom onto the whole layer,
+click a box to zoom onto that box; click the same thing again, the background, or press **Esc**
+to go back. While zoomed, the header, legend, buttons and captions disappear and the diagram
+fills the screen, with nothing on top of it. The zoom moves the diagram itself, so the dots keep
+flowing while the rest of the diagram fades back. Tall parts (PostgreSQL, the serving layer)
+show the half you clicked: the upper half for the live tables, the lower half for the daily ones.
+
+Connections with traffic in the last few seconds show moving dashes. Airflow's eight tasks
+are shown live, a failed task flashes red (use it with the bad-lab-file drill). A caption
+line at the bottom narrates each event: plain language in **Story** mode, topics, tables and
+batch ids in **Technical** mode. The toolbar repeats the main buttons (scenario, broken
+readings, run the daily job) and shows the reaction timer, so the whole demo can be recorded
+from this tab.
+
+Where the numbers come from: `GET /demo/api/pipeline` (`control/pipeline.py`) reads Kafka end
+offsets, the Spark listener's gauges on the Pushgateway, the serving tables, the lake folder,
+the landing folder, the last DAG run and Prometheus' firing alerts, in parallel. A source that
+is down (e.g. Prometheus without `-Monitoring`) is shown greyed or "offline" and never slows
+the others down. The Spark and Monitoring numbers need the monitoring profile's Pushgateway
+(`.\demo\start-demo.ps1 -Monitoring`).
 
 ## Suggested demo flow (about 6 minutes)
 
@@ -120,5 +159,6 @@ Tips:
 | `control/server.py` | HTTP endpoints for the page, reaction-time measurement |
 | `control/producer.py` | The switchable vital feed (wraps `simulators/vital_producer`) |
 | `control/batch.py` | Airflow client, batch-table queries, bad-lab-file writer |
-| `control/static/` | The page: `index.html`, `style.css`, `app.js` (no build step, works offline) |
-| `../tests/demo/test_demo_control.py` | 21 tests: feed switching, malformed detection, lab drill, endpoints |
+| `control/pipeline.py` | Live numbers for the Live pipeline tab (Kafka offsets, Spark gauges, tables, lake, landing) |
+| `control/static/` | The page: `index.html`, `style.css`, `app.js`, and `pipeline.js` / `pipeline.css` for the Live pipeline tab (no build step, works offline) |
+| `../tests/demo/test_demo_control.py` | 25 tests: feed switching, malformed detection, lab drill, endpoints, pipeline sources |

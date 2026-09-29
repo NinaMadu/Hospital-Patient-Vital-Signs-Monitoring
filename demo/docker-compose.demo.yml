@@ -29,6 +29,7 @@ services:
       - ./:/opt/project:ro
       - ./data/landing:/data/landing        # the bad-lab-file drill writes here
       - ./data/reports:/data/reports:ro     # daily reports, opened from the page
+      - lake:/data/lake:ro                  # Live pipeline tab counts Q2's Parquet files
     networks:
       default:
         # Prometheus scrapes vital-producer:8001; this container now owns the feed,
