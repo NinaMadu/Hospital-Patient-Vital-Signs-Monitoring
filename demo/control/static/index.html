@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ward Vitals Demo</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="mode-story">
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M2 12h4l2-5 4 10 2-5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div>
+      <h1>Ward Vitals Pipeline</h1>
+      <p class="sub">Live demo &middot; Lambda architecture &middot; simulated rules, not clinical guidance</p>
+    </div>
+  </div>
+
+  <div class="clock" title="1 simulated day = 5 real minutes">
+    <div class="clock-row"><span class="label">Simulated day</span><strong id="simDay">&ndash;</strong><span id="simTime" class="muted"></span></div>
+    <div class="bar"><div id="dayBar"></div></div>
+    <div class="hint">1 simulated day = 5 real minutes</div>
+  </div>
+
+  <div class="services" id="services">
+    <span class="chip" data-svc="kafka"><i></i>Kafka</span>
+    <span class="chip" data-svc="api"><i></i>API</span>
+    <span class="chip" data-svc="postgres"><i></i>Postgres</span>
+    <span class="chip" data-svc="airflow"><i></i>Airflow</span>
+  </div>
+
+  <div class="mode" role="group" aria-label="Audience">
+    <button data-mode="story" class="on">Story</button>
+    <button data-mode="tech">Technical</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ============================================================ controls -->
+  <aside class="controls">
+    <section class="card">
+      <h2>1 &middot; Live scenarios <span class="tag">speed layer</span></h2>
+      <p class="story">Make one patient's vitals change, then watch the ward board react within seconds.</p>
+      <p class="tech">Restarts Member A's seeded simulator with <code>--scenario</code>; same seed &rarr; same alerts every run.</p>
+      <div class="row">
+        <label>Patient <select id="patient"></select></label>
+        <label>Lasts <select id="duration">
+          <option value="90">1.5 min</option><option value="180" selected>3 min</option><option value="300">5 min</option>
+        </select></label>
+      </div>
+      <div class="scenarios" id="scenarios"></div>
+      <div id="scenarioStatus" class="scenario-status" hidden></div>
+    </section>
+
+    <section class="card">
+      <h2>2 &middot; Data quality <span class="tag">validation</span></h2>
+      <p class="story">Send some broken readings. They are set aside, never shown on the ward board.</p>
+      <p class="tech">Invalid events are routed by Q1 to <code>vitals-dlq</code> with a reason; the lake keeps them for diagnosis.</p>
+      <label class="switch"><input type="checkbox" id="malformed"><span></span>Break 5% of readings</label>
+      <div class="kv"><span>Broken readings sent</span><strong id="malformedCount">0</strong></div>
+      <div class="row gap">
+        <button class="ghost" id="pauseFeed">Pause feed</button>
+        <button class="ghost" id="resumeFeed">Resume feed</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3 &middot; Daily batch <span class="tag">batch layer</span></h2>
+      <p class="story">Once a simulated day, lab results arrive as a file and are combined with the day's vitals.</p>
+      <p class="tech">Triggers <code>daily_lab_consolidation</code> via the Airflow REST API with <code>{"sim_day": N}</code>.</p>
+      <div class="row">
+        <label>Day <input id="batchDay" type="number" min="0" step="1"></label>
+        <button class="primary" id="runDag">Run daily consolidation</button>
+      </div>
+      <details class="drill">
+        <summary>Failure drill: bad lab file</summary>
+        <p>Overwrites that day's lab file with 3 broken rows. Run the consolidation: validation rejects the file, nothing is loaded, a FAIL appears below. Then restore.</p>
+        <div class="row gap">
+          <button class="danger" id="corrupt">Corrupt lab file</button>
+          <button class="ghost" id="restore">Restore file</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Open the tools</h2>
+      <div class="links" id="links"></div>
+    </section>
+  </aside>
+
+  <!-- ============================================================== ward -->
+  <section class="ward">
+    <div class="ward-head">
+      <div>
+        <h2 class="big">Ward board <span class="tag live">live</span></h2>
+        <p class="story">Each tile is a patient. The colour shows how worried we should be <em>right now</em>, from the last 2 minutes of readings.</p>
+        <p class="tech">GET <code>/api/patients</code> &larr; <code>patient_current_status</code> &larr; Spark Q1: 2-min windows sliding every 30 s, 1-min watermark.</p>
+      </div>
+      <div class="counts" id="counts"></div>
+    </div>
+    <div class="tiles" id="tiles"><div class="empty">Waiting for the speed layer&hellip;</div></div>
+    <div class="legend">
+      <span><i class="dot normal"></i>Normal</span>
+      <span><i class="dot watch"></i>Watch</span>
+      <span><i class="dot concerning"></i>Concerning</span>
+      <span>&uarr; rising &nbsp; &darr; falling trend</span>
+      <span class="muted">Click a patient for the full picture</span>
+    </div>
+
+    <section class="card batch">
+      <div class="batch-head">
+        <div>
+          <h2>Daily risk: vitals + labs <span class="tag">batch layer</span> <span id="riskDay" class="muted"></span></h2>
+          <p class="story">The daily report adds lab results to the day's vitals. Highlighted rows are patients whose risk changed <em>because of their labs</em>.</p>
+          <p class="tech"><code>daily_patient_risk</code>: Spark batch, lake summary &#8904; newest labs (day N or N&minus;1), left join over the ward.</p>
+        </div>
+        <div id="reportLinks" class="report-links"></div>
+      </div>
+      <div class="dag" id="dagRuns"></div>
+      <div class="table-wrap"><table id="riskTable"></table></div>
+      <div class="health" id="health"></div>
+    </section>
+  </section>
+
+  <!-- ============================================================ right -->
+  <aside class="side">
+    <section class="card">
+      <h2>Alerts <span class="tag live">live</span></h2>
+      <p class="tech">Spark Q3 &rarr; <code>patient-alerts</code> &rarr; alert consumer &rarr; <code>vital_alerts</code></p>
+      <div class="alerts" id="alerts"><div class="empty">No alerts in the last 15 minutes</div></div>
+    </section>
+
+    <section class="card tech-only">
+      <h2>Kafka feed <span class="tag">patient-vitals</span></h2>
+      <div class="partitions" id="partitions"></div>
+      <div class="feed" id="feed"></div>
+    </section>
+
+    <section class="card">
+      <h2>What we did</h2>
+      <ol class="timeline" id="timeline"></ol>
+    </section>
+  </aside>
+</main>
+
+<!-- ============================================================ patient -->
+<div class="drawer" id="drawer" hidden>
+  <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="dTitle">
+    <button class="close" id="drawerClose" aria-label="Close">&times;</button>
+    <h2 id="dTitle"></h2>
+    <p class="story">Live vitals and yesterday's labs, combined into one risk score.</p>
+    <p class="tech">GET <code>/api/patients/{id}</code>: the serving layer merges the speed view and the batch view with <code>risk_rules.combine()</code>.</p>
+    <div id="dBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

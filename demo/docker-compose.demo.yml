@@ -1,0 +1,49 @@
+# Demo mode: adds the demo control centre (http://localhost:8050) on top of the normal stack.
+#
+#   docker compose -f docker-compose.yml -f demo/docker-compose.demo.yml up -d
+#   (or simply: .\demo\start-demo.ps1)
+#
+# Paths below are relative to the project root (the folder of the first compose file).
+services:
+
+  # The control centre produces the vital-sign feed itself, so scenarios can be switched from
+  # the page. The always-on producer is therefore kept out of demo mode; it is only started
+  # with --profile standalone-producer.
+  vital-producer:
+    profiles: ["standalone-producer"]
+
+  demo-control:
+    image: ward-vitals/python-app:dev
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+    command: ["uvicorn", "demo.control.server:app", "--host", "0.0.0.0", "--port", "8050"]
+    env_file: .env
+    environment:
+      DEMO_API_URL: http://api:8000
+      DEMO_AIRFLOW_URL: http://airflow:8080
+      DEMO_METRICS_PORT: "8001"
+    ports:
+      - "8050:8050"
+    volumes:
+      - ./:/opt/project:ro
+      - ./data/landing:/data/landing        # the bad-lab-file drill writes here
+      - ./data/reports:/data/reports:ro     # daily reports, opened from the page
+    networks:
+      default:
+        # Prometheus scrapes vital-producer:8001; this container now owns the feed,
+        # so it answers under that name and the producer metrics and alerts keep working.
+        aliases: [vital-producer]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  # The page triggers DAG runs through Airflow's REST API, which needs basic auth enabled.
+  airflow:
+    environment:
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
