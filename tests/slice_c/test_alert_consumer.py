@@ -41,6 +41,18 @@ def msg(**kw):
     return Msg(json.dumps(alert(**kw)).encode())
 
 
+# ---------------------------------------------------------------- metrics --
+
+def test_alert_series_exist_before_the_first_alert():
+    # Regression (found in the end-to-end check): PatientCriticalAlert uses increase(),
+    # which needs the CRITICAL series to exist at 0 before the first critical alert.
+    from prometheus_client import REGISTRY
+
+    for severity, alert_type in (("WARNING", "THRESHOLD"), ("CRITICAL", "SUSTAINED")):
+        labels = {"severity": severity, "alert_type": alert_type}
+        assert REGISTRY.get_sample_value("ward_alerts_stored_total", labels) is not None
+
+
 # ---------------------------------------------------------------- parsing --
 
 def test_parse_valid_alert_to_row_in_column_order():
