@@ -104,10 +104,10 @@ Inside the Docker network use `kafka:9092`, `postgres:5432` and `spark://spark-m
 Demo alert for P007 (details in [docs/PART_C_README.md](docs/PART_C_README.md)):
 ```bash
 docker compose stop vital-producer
-docker compose run --rm vital-producer python -m simulators.vital_producer.main --scenario spike --patient P007 --scenario-start 10
+docker compose run --rm --use-aliases vital-producer python -m simulators.vital_producer.main --scenario spike --patient P007 --scenario-start 10
 ```
 
-Other scenarios: `--scenario hr_spike`, `spo2_drop` (steady SpO2 fall, shows the FALLING trend) and `outage` (the whole feed goes silent, fires `NoVitalsReceived`). The same `--seed` gives the same alerts every run; see the docstring in [simulators/vital_producer/main.py](simulators/vital_producer/main.py). Afterwards, `docker compose start vital-producer` brings back the normal ward.
+Other scenarios: `--scenario hr_spike`, `spo2_drop` (steady SpO2 fall, shows the FALLING trend) and `outage` (the whole feed goes silent, fires `NoVitalsReceived`). The same `--seed` gives the same alerts every run; see the docstring in [simulators/vital_producer/main.py](simulators/vital_producer/main.py). Afterwards, `docker compose start vital-producer` brings back the normal ward. `--use-aliases` gives the demo container the service name, so Prometheus keeps scraping the producer's metrics (without it `ScrapeTargetDown` fires for `vital-producer`).
 
 ## Verify the environment
 

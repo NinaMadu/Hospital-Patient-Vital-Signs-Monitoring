@@ -14,7 +14,7 @@ Demo scenarios (A8) run from --scenario-start for --scenario-duration seconds:
     outage     the whole feed goes silent (no readings from any patient), then resumes
 
     docker compose stop vital-producer
-    docker compose run --rm vital-producer python -m simulators.vital_producer.main \
+    docker compose run --rm --use-aliases vital-producer python -m simulators.vital_producer.main \
         --scenario spo2_drop --patient P007 --scenario-start 30
 
 Repeatable: the same --seed and scenario give the same values at the same offsets from the
